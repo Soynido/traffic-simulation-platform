@@ -36,13 +36,13 @@ services:
   # Backend API
   backend:
     build:
-      context: ./backend
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: ./backend/Dockerfile
     container_name: traffic-backend
     ports:
       - "8000:8000"
     environment:
-      - DATABASE_URL=postgresql://traffic_user:traffic_pass@postgres:5432/traffic_db
+      - DATABASE_URL=postgresql+asyncpg://traffic_user:traffic_pass@postgres:5432/traffic_db
       - REDIS_URL=redis://redis:6379
       - API_HOST=0.0.0.0
       - API_PORT=8000
@@ -53,14 +53,15 @@ services:
       redis:
         condition: service_healthy
     volumes:
-      - ./backend:/app
-    command: uvicorn src.main:app --host 0.0.0.0 --port 8000 --reload
+      - ./backend:/app/backend
+      - ./shared:/app/shared
+    command: uvicorn backend.src.main:app --host 0.0.0.0 --port 8000 --reload
 
   # Frontend Dashboard
   frontend:
     build:
-      context: ./frontend
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: ./frontend/Dockerfile
     container_name: traffic-frontend
     ports:
       - "3001:3000"
@@ -71,18 +72,19 @@ services:
     depends_on:
       - backend
     volumes:
-      - ./frontend:/app
-      - /app/node_modules
-    command: npm run dev
+      - ./frontend:/app/frontend
+      - ./shared:/app/shared
+      - /app/frontend/node_modules
+    command: npm run dev --prefix frontend
 
   # Simulation Workers
   simulation-worker:
     build:
-      context: ./simulation-workers
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: ./simulation-workers/Dockerfile
     container_name: traffic-worker-1
     environment:
-      - DATABASE_URL=postgresql://traffic_user:traffic_pass@postgres:5432/traffic_db
+      - DATABASE_URL=postgresql+asyncpg://traffic_user:traffic_pass@postgres:5432/traffic_db
       - REDIS_URL=redis://redis:6379
       - WORKER_ID=worker-1
       - BROWSER_HEADLESS=true
@@ -93,8 +95,9 @@ services:
       redis:
         condition: service_healthy
     volumes:
-      - ./simulation-workers:/app
-    command: python -m workers.simulation_worker
+      - ./simulation-workers:/app/simulation-workers
+      - ./shared:/app/shared
+    command: python -m simulation-workers.src.workers.simulation_worker
 
 volumes:
   postgres_data:

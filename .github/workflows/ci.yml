@@ -1,0 +1,340 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [ main, develop, 'feature/*', 'fix/*', 'refactor/*' ]
+  pull_request:
+    branches: [ main, develop ]
+  workflow_dispatch:
+
+env:
+  NODE_VERSION: '18'
+  PYTHON_VERSION: '3.11'
+  POSTGRES_VERSION: '15'
+  REDIS_VERSION: '7'
+
+jobs:
+  # Job pour les tests des types partagés
+  shared-tests:
+    name: Shared Tests
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ env.NODE_VERSION }}
+        cache: 'npm'
+        cache-dependency-path: shared/package-lock.json
+        
+    - name: Install shared dependencies
+      run: |
+        cd shared
+        npm ci
+        
+    - name: Build shared package
+      run: |
+        cd shared
+        npm run build
+        
+    - name: Run shared tests
+      run: |
+        cd shared/tests
+        npm ci
+        npm run test:run
+        
+    - name: Upload coverage reports
+      uses: codecov/codecov-action@v3
+      with:
+        files: ./shared/tests/coverage/lcov.info
+        flags: shared
+        name: shared-coverage
+
+  # Job pour les tests du backend
+  backend-tests:
+    name: Backend Tests
+    runs-on: ubuntu-latest
+    
+    services:
+      postgres:
+        image: postgres:${{ env.POSTGRES_VERSION }}
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_USER: postgres
+          POSTGRES_DB: test_traffic_db
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+          
+      redis:
+        image: redis:${{ env.REDIS_VERSION }}
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 6379:6379
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Setup Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ env.PYTHON_VERSION }}
+        cache: 'pip'
+        
+    - name: Install system dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y postgresql-client
+        
+    - name: Install Python dependencies
+      run: |
+        cd backend
+        pip install -r requirements.txt
+        pip install pytest pytest-cov pytest-asyncio httpx
+        
+    - name: Run database migrations
+      run: |
+        cd backend
+        alembic upgrade head
+      env:
+        DATABASE_URL: postgresql://postgres:postgres@localhost:5432/test_traffic_db
+        REDIS_URL: redis://localhost:6379
+        
+    - name: Run backend tests
+      run: |
+        cd backend
+        pytest src/tests/ -v --cov=src --cov-report=xml --cov-report=html
+      env:
+        DATABASE_URL: postgresql://postgres:postgres@localhost:5432/test_traffic_db
+        REDIS_URL: redis://localhost:6379
+        PYTHONPATH: ${{ github.workspace }}/backend:${{ github.workspace }}/shared
+        
+    - name: Upload coverage reports
+      uses: codecov/codecov-action@v3
+      with:
+        files: ./backend/coverage.xml
+        flags: backend
+        name: backend-coverage
+
+  # Job pour les tests du frontend
+  frontend-tests:
+    name: Frontend Tests
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ env.NODE_VERSION }}
+        cache: 'npm'
+        cache-dependency-path: frontend/package-lock.json
+        
+    - name: Install frontend dependencies
+      run: |
+        cd frontend
+        npm ci
+        
+    - name: Build shared package
+      run: |
+        cd shared
+        npm ci
+        npm run build
+        
+    - name: Run frontend tests
+      run: |
+        cd frontend
+        npm run test:run
+        
+    - name: Run frontend linting
+      run: |
+        cd frontend
+        npm run lint
+        
+    - name: Run frontend type checking
+      run: |
+        cd frontend
+        npm run type-check
+        
+    - name: Build frontend
+      run: |
+        cd frontend
+        npm run build
+        
+    - name: Upload coverage reports
+      uses: codecov/codecov-action@v3
+      with:
+        files: ./frontend/coverage/lcov.info
+        flags: frontend
+        name: frontend-coverage
+
+  # Job pour les tests des simulation workers
+  simulation-tests:
+    name: Simulation Workers Tests
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Setup Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ env.PYTHON_VERSION }}
+        cache: 'pip'
+        
+    - name: Install system dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y postgresql-client redis-tools
+        
+    - name: Install simulation workers dependencies
+      run: |
+        cd simulation-workers
+        pip install -r requirements.txt
+        pip install pytest pytest-cov pytest-asyncio
+        
+    - name: Run simulation workers tests
+      run: |
+        cd simulation-workers
+        pytest src/tests/ -v --cov=src --cov-report=xml --cov-report=html
+      env:
+        DATABASE_URL: postgresql://postgres:postgres@localhost:5432/test_traffic_db
+        REDIS_URL: redis://localhost:6379
+        PYTHONPATH: ${{ github.workspace }}/simulation-workers:${{ github.workspace }}/shared
+        
+    - name: Upload coverage reports
+      uses: codecov/codecov-action@v3
+      with:
+        files: ./simulation-workers/coverage.xml
+        flags: simulation
+        name: simulation-coverage
+
+  # Job pour les tests d'intégration
+  integration-tests:
+    name: Integration Tests
+    runs-on: ubuntu-latest
+    needs: [shared-tests, backend-tests, frontend-tests, simulation-tests]
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Setup Docker Buildx
+      uses: docker/setup-buildx-action@v3
+      
+    - name: Build Docker images
+      run: |
+        docker-compose build
+        
+    - name: Start services
+      run: |
+        docker-compose up -d postgres redis
+        sleep 30
+        
+    - name: Run integration tests
+      run: |
+        ./scripts/test-e2e.sh
+        
+    - name: Stop services
+      run: |
+        docker-compose down
+
+  # Job pour les tests de performance
+  performance-tests:
+    name: Performance Tests
+    runs-on: ubuntu-latest
+    needs: [integration-tests]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Setup Docker Buildx
+      uses: docker/setup-buildx-action@v3
+      
+    - name: Build Docker images
+      run: |
+        docker-compose build
+        
+    - name: Start services
+      run: |
+        docker-compose up -d
+        sleep 60
+        
+    - name: Run performance tests
+      run: |
+        ./scripts/performance-test.sh
+        
+    - name: Stop services
+      run: |
+        docker-compose down
+
+  # Job pour le déploiement
+  deploy:
+    name: Deploy
+    runs-on: ubuntu-latest
+    needs: [integration-tests]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    environment: production
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Setup Docker Buildx
+      uses: docker/setup-buildx-action@v3
+      
+    - name: Login to Docker Hub
+      uses: docker/login-action@v3
+      with:
+        username: ${{ secrets.DOCKER_USERNAME }}
+        password: ${{ secrets.DOCKER_PASSWORD }}
+        
+    - name: Build and push Docker images
+      run: |
+        docker-compose build
+        docker-compose push
+        
+    - name: Deploy to production
+      run: |
+        ./scripts/deploy-production.sh
+      env:
+        KUBECONFIG: ${{ secrets.KUBECONFIG }}
+        DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        REDIS_URL: ${{ secrets.REDIS_URL }}
+
+  # Job pour la notification
+  notify:
+    name: Notify
+    runs-on: ubuntu-latest
+    needs: [deploy]
+    if: always()
+    
+    steps:
+    - name: Notify success
+      if: needs.deploy.result == 'success'
+      run: |
+        echo "✅ Deployment successful!"
+        # Ici vous pouvez ajouter des notifications (Slack, Discord, etc.)
+        
+    - name: Notify failure
+      if: needs.deploy.result == 'failure'
+      run: |
+        echo "❌ Deployment failed!"
+        # Ici vous pouvez ajouter des notifications d'erreur

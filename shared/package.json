@@ -1,0 +1,52 @@
+{
+  "name": "@traffic-simulation/shared",
+  "version": "1.0.0",
+  "description": "Shared types, schemas, constants and utilities for Traffic Simulation Platform",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "clean": "rm -rf dist",
+    "type-check": "tsc --noEmit",
+    "lint": "eslint src --ext .ts",
+    "lint:fix": "eslint src --ext .ts --fix"
+  },
+  "dependencies": {
+    "zod": "^3.22.4"
+  },
+  "devDependencies": {
+    "@types/node": "^20.10.5",
+    "typescript": "^5.3.3",
+    "eslint": "^8.55.0",
+    "@typescript-eslint/eslint-plugin": "^6.13.2",
+    "@typescript-eslint/parser": "^6.13.2"
+  },
+  "peerDependencies": {
+    "typescript": ">=5.0.0"
+  },
+  "files": [
+    "dist",
+    "types",
+    "schemas",
+    "constants",
+    "utils"
+  ],
+  "keywords": [
+    "traffic-simulation",
+    "types",
+    "schemas",
+    "validation",
+    "shared"
+  ],
+  "author": "Traffic Simulation Platform",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Soynido/traffic-simulation-platform.git",
+    "directory": "shared"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

@@ -16,6 +16,25 @@ import {
   Target,
   RefreshCw
 } from 'lucide-react';
+import {
+  buildSessionTimeline,
+  buildPersonaDistribution,
+  buildHumanVsSimulatedComparison,
+  type TimelinePoint,
+} from '@/utils/chartUtils';
+import { getAnalyticsSummary, compareAnalytics } from '@/services/analytics';
+import { listSessions, listSessionsByCampaign } from '@/services/sessions';
+import { listPersonas, type Persona } from '@/services/api';
+import { listCampaigns, type Campaign } from '@/services/campaigns';
+import { 
+  Select,
+  SelectTrigger,
+  SelectValue,
+  SelectContent,
+  SelectItem,
+} from '@/components/ui/select';
+import { connectWebSocket } from '@/services/websocket';
+import { Input } from '@/components/ui/input';
 
 interface AnalyticsData {
   totalSessions: number;
@@ -50,53 +69,164 @@ export default function AnalyticsPage() {
   const [data, setData] = useState<AnalyticsData | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [campaigns, setCampaigns] = useState<Campaign[]>([]);
+  const [selectedCampaignId, setSelectedCampaignId] = useState<string | ''>('');
+  const [startDate, setStartDate] = useState<string>('');
+  const [endDate, setEndDate] = useState<string>('');
 
   // Mock data - in real app, this would come from API
-  useEffect(() => {
-    const fetchData = async () => {
+  const fetchData = async () => {
       setLoading(true);
-      // Simulate API call
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      
-      setData({
-        totalSessions: 2456,
-        completedSessions: 2149,
-        failedSessions: 307,
-        successRate: 87.5,
-        avgSessionDuration: 145,
-        avgPagesPerSession: 4.2,
-        avgActionsPerSession: 12.8,
-        avgRhythmScore: 0.73,
-        detectionRiskScore: 0.15,
-        sessionTimeline: [
-          { timestamp: '2024-01-15T00:00:00Z', sessions: 45, completed: 42, failed: 3 },
-          { timestamp: '2024-01-15T01:00:00Z', sessions: 52, completed: 48, failed: 4 },
-          { timestamp: '2024-01-15T02:00:00Z', sessions: 38, completed: 35, failed: 3 },
-          { timestamp: '2024-01-15T03:00:00Z', sessions: 41, completed: 38, failed: 3 },
-          { timestamp: '2024-01-15T04:00:00Z', sessions: 29, completed: 27, failed: 2 },
-          { timestamp: '2024-01-15T05:00:00Z', sessions: 33, completed: 31, failed: 2 },
-          { timestamp: '2024-01-15T06:00:00Z', sessions: 47, completed: 44, failed: 3 },
-          { timestamp: '2024-01-15T07:00:00Z', sessions: 58, completed: 54, failed: 4 },
-        ],
-        personaDistribution: [
-          { name: 'Rapid Visitor', value: 45, color: '#3b82f6' },
-          { name: 'Careful Reader', value: 32, color: '#10b981' },
-          { name: 'Social Browser', value: 23, color: '#f59e0b' },
-          { name: 'Mobile User', value: 18, color: '#ef4444' },
-        ],
-        comparisonData: [
-          { metric: 'Page Views', human: 1200, simulated: 1150, difference: 50 },
-          { metric: 'Session Duration', human: 180, simulated: 175, difference: 5 },
-          { metric: 'Bounce Rate', human: 35, simulated: 38, difference: 3 },
-          { metric: 'Click Rate', human: 12, simulated: 11, difference: 1 },
-          { metric: 'Scroll Depth', human: 68, simulated: 65, difference: 3 },
-        ],
-      });
-      setLoading(false);
-    };
+      try {
+        // Fetch campaigns first (for selector)
+        const [campaignsRes] = await Promise.all([
+          listCampaigns({ page: 1, limit: 100 }),
+        ]);
+        const campaignItems = Array.isArray(campaignsRes)
+          ? (campaignsRes as Campaign[])
+          : ((campaignsRes as any)?.items ?? []);
+        setCampaigns(campaignItems);
 
+        // Fetch analytics summary and sessions, filtered by campaign if selected
+        const [summary, sessionsRes, personasRes] = await Promise.all([
+          getAnalyticsSummary({
+            campaign_id: selectedCampaignId || undefined,
+            start_date: startDate || undefined,
+            end_date: endDate || undefined,
+          }),
+          selectedCampaignId
+            ? listSessionsByCampaign(selectedCampaignId, { page: 1, limit: 1000 })
+            : listSessions({ page: 1, limit: 1000 }),
+          listPersonas({ page: 1, limit: 1000 }),
+        ]);
+
+        let sessionItems = Array.isArray(sessionsRes)
+          ? sessionsRes
+          : (sessionsRes.items ?? []);
+
+        // Client-side filter by date range for sessions (API does not accept dates)
+        if (startDate || endDate) {
+          const startMs = startDate ? new Date(startDate).getTime() : -Infinity;
+          const endMs = endDate ? new Date(endDate).getTime() : Infinity;
+          sessionItems = (sessionItems as any[]).filter((s) => {
+            const t = new Date(s.created_at).getTime();
+            return t >= startMs && t <= endMs;
+          });
+        }
+
+        // Build charts
+        const sessionTimeline: TimelinePoint[] = buildSessionTimeline(
+          sessionItems.map((s: any) => ({ created_at: s.created_at, status: s.status })),
+          { bucket: 'hour' }
+        );
+
+        // For persona distribution, we need names; fallback to IDs if not available here
+        let personaItems: Persona[] = [] as any;
+        if (Array.isArray(personasRes)) {
+          personaItems = personasRes as Persona[];
+        } else if (personasRes && Array.isArray((personasRes as any).items)) {
+          personaItems = (personasRes as any).items as Persona[];
+        }
+
+        const personasById: Record<string, { name: string }> = personaItems.reduce((acc, p) => {
+          acc[p.id] = { name: p.name };
+          return acc;
+        }, {} as Record<string, { name: string }>);
+        const personaDistribution = buildPersonaDistribution(
+          sessionItems.map((s: any) => ({ persona_id: s.persona_id })),
+          personasById
+        );
+
+        // Optionally compare two identical criteria to populate comparison chart
+        let comparisonData = [] as Array<{ metric: string; human: number; simulated: number; difference: number }>;
+        try {
+          const cmp = await compareAnalytics([
+            { name: 'Human' },
+            { name: 'Simulated' },
+          ]);
+          const human = cmp.results[0]?.summary ?? summary;
+          const simulated = cmp.results[1]?.summary ?? summary;
+          comparisonData = buildHumanVsSimulatedComparison(human, simulated);
+        } catch {
+          // Fallback to using the same summary for both
+          comparisonData = buildHumanVsSimulatedComparison(summary, summary);
+        }
+
+        setData({
+          totalSessions: summary.total_sessions,
+          completedSessions: summary.completed_sessions,
+          failedSessions: summary.failed_sessions,
+          successRate: Number((summary.success_rate * 100).toFixed(1)),
+          avgSessionDuration: Math.round((summary.avg_session_duration_ms ?? 0) / 1000),
+          avgPagesPerSession: Number((summary.avg_pages_per_session ?? 0).toFixed(1)),
+          avgActionsPerSession: Number((summary.avg_actions_per_session ?? 0).toFixed(1)),
+          avgRhythmScore: Number((summary.avg_rhythm_score ?? 0).toFixed(2)),
+          detectionRiskScore: Number((summary.detection_risk_score ?? 0).toFixed(2)),
+          sessionTimeline,
+          personaDistribution,
+          comparisonData,
+        });
+      } catch (e) {
+        // Soft-fail: keep page skeleton visible
+        console.error('Failed to load analytics', e);
+        setData({
+          totalSessions: 0,
+          completedSessions: 0,
+          failedSessions: 0,
+          successRate: 0,
+          avgSessionDuration: 0,
+          avgPagesPerSession: 0,
+          avgActionsPerSession: 0,
+          avgRhythmScore: 0,
+          detectionRiskScore: 0,
+          sessionTimeline: [],
+          personaDistribution: [],
+          comparisonData: [],
+        });
+      }
+      setLoading(false);
+    } catch (e) {
+      console.error('Failed to load analytics', e);
+      setData({
+        totalSessions: 0,
+        completedSessions: 0,
+        failedSessions: 0,
+        successRate: 0,
+        avgSessionDuration: 0,
+        avgPagesPerSession: 0,
+        avgActionsPerSession: 0,
+        avgRhythmScore: 0,
+        detectionRiskScore: 0,
+        sessionTimeline: [],
+        personaDistribution: [],
+        comparisonData: [],
+      });
+    }
+    setLoading(false);
+  };
+
+  useEffect(() => {
     fetchData();
-  }, []);
+  }, [selectedCampaignId, startDate, endDate]);
+
+  // Live updates via WebSocket
+  useEffect(() => {
+    const params = new URLSearchParams();
+    if (selectedCampaignId) params.set('campaign_id', selectedCampaignId);
+    if (startDate) params.set('start_date', startDate);
+    if (endDate) params.set('end_date', endDate);
+    const path = `/ws/campaign-updates${params.toString() ? `?${params.toString()}` : ''}`;
+
+    const ws = connectWebSocket(path, {
+      reconnect: true,
+      onMessage: () => {
+        // Throttle by relying on server tick interval (5s)
+        fetchData();
+      },
+    });
+
+    return () => ws.close();
+  }, [selectedCampaignId, startDate, endDate]);
 
   const handleRefresh = async () => {
     setRefreshing(true);
@@ -136,15 +266,35 @@ export default function AnalyticsPage() {
               Detailed insights into your traffic simulation performance
             </p>
           </div>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={handleRefresh}
-            disabled={refreshing}
-          >
-            <RefreshCw className={`h-4 w-4 mr-2 ${refreshing ? 'animate-spin' : ''}`} />
-            Refresh
-          </Button>
+          <div className="flex items-center gap-3">
+            <div className="w-64">
+              <Select value={selectedCampaignId} onValueChange={setSelectedCampaignId}>
+                <SelectTrigger>
+                  <SelectValue placeholder="All campaigns" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="">All campaigns</SelectItem>
+                  {campaigns.map((c) => (
+                    <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="flex items-center gap-2">
+              <Input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
+              <span className="text-sm text-muted-foreground">to</span>
+              <Input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} />
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleRefresh}
+              disabled={refreshing}
+            >
+              <RefreshCw className={`h-4 w-4 mr-2 ${refreshing ? 'animate-spin' : ''}`} />
+              Refresh
+            </Button>
+          </div>
         </div>
 
         {/* KPI Cards */}

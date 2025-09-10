@@ -57,7 +57,7 @@ passed_tests=0
 
 # Test des services Docker
 echo "🐳 Test des services Docker..."
-services=("postgres" "redis" "backend" "frontend" "simulation-workers")
+services=("postgres" "redis" "backend" "frontend" "simulation-worker")
 for service in "${services[@]}"; do
     total_tests=$((total_tests + 1))
     if test_docker_service "$service" "$service"; then
@@ -76,7 +76,7 @@ api_tests=(
     "http://localhost:8000/api/v1/personas:Personas API:200"
     "http://localhost:8000/api/v1/campaigns:Campaigns API:200"
     "http://localhost:8000/api/v1/sessions:Sessions API:200"
-    "http://localhost:8000/api/v1/analytics:Analytics API:200"
+    "http://localhost:8000/api/v1/analytics/summary:Analytics Summary API:200"
 )
 
 for test in "${api_tests[@]}"; do

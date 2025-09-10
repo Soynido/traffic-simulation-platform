@@ -130,7 +130,7 @@
 ### API & Data Integration
 - [x] T077 [P] API client service with error handling in frontend/src/services/api.ts
 - [x] T078 [P] WebSocket client for real-time updates in frontend/src/services/websocket.ts
-- [ ] T079 [P] Data formatting utilities for charts in frontend/src/utils/chartUtils.ts
+- [x] T079 [P] Data formatting utilities for charts in frontend/src/utils/chartUtils.ts
 
 ## Phase 3.5: Integration & Middleware
 

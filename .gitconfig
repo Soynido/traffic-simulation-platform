@@ -1,0 +1,13 @@
+[alias]
+    workflow = "!bash scripts/git-workflow.sh"
+    wf = "!bash scripts/git-workflow.sh"
+    
+    # Raccourcis pour les commandes courantes
+    start = "!bash scripts/git-workflow.sh start"
+    commit = "!bash scripts/git-workflow.sh commit"
+    push = "!bash scripts/git-workflow.sh push"
+    pr = "!bash scripts/git-workflow.sh pr"
+    finish = "!bash scripts/git-workflow.sh finish"
+    status = "!bash scripts/git-workflow.sh status"
+    list = "!bash scripts/git-workflow.sh list"
+    clean = "!bash scripts/git-workflow.sh clean"

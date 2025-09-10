@@ -1,0 +1,22 @@
+{
+  "name": "@traffic-simulation/shared-tests",
+  "version": "1.0.0",
+  "description": "Tests for shared types, schemas, constants and utilities",
+  "type": "module",
+  "scripts": {
+    "test": "vitest",
+    "test:watch": "vitest --watch",
+    "test:ui": "vitest --ui",
+    "test:coverage": "vitest --coverage",
+    "test:run": "vitest run"
+  },
+  "dependencies": {
+    "@traffic-simulation/shared": "file:.."
+  },
+  "devDependencies": {
+    "vitest": "^1.0.4",
+    "@vitest/ui": "^1.0.4",
+    "c8": "^8.0.1",
+    "typescript": "^5.3.3"
+  }
+}

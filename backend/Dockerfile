@@ -19,9 +19,9 @@ COPY . .
 RUN useradd -m -u 1000 appuser && chown -R appuser:appuser /app
 USER appuser
 
-# Health check
+# Health check (use Python httpx to avoid extra system deps)
 HEALTHCHECK --interval=30s --timeout=30s --start-period=5s --retries=3 \
-    CMD curl -f http://localhost:8000/health || exit 1
+    CMD python -c "import asyncio, httpx; async def hc():\n+        async with httpx.AsyncClient(timeout=5) as c: r = await c.get('http://localhost:8000/health');\n+        assert r.status_code == 200\n+    ; asyncio.run(hc())" || exit 1
 
 # Expose port
 EXPOSE 8000

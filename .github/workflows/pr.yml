@@ -1,0 +1,233 @@
+name: Pull Request Checks
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+env:
+  NODE_VERSION: '18'
+  PYTHON_VERSION: '3.11'
+
+jobs:
+  # Job pour vérifier la qualité du code
+  code-quality:
+    name: Code Quality
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+        
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ env.NODE_VERSION }}
+        cache: 'npm'
+        
+    - name: Setup Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ env.PYTHON_VERSION }}
+        cache: 'pip'
+        
+    - name: Install dependencies
+      run: |
+        # Frontend
+        cd frontend && npm ci
+        cd ../shared && npm ci
+        cd ../backend && pip install -r requirements.txt
+        cd ../simulation-workers && pip install -r requirements.txt
+        
+    - name: Run linting
+      run: |
+        # Frontend linting
+        cd frontend && npm run lint
+        
+        # Backend linting
+        cd ../backend && flake8 src/
+        
+        # Simulation workers linting
+        cd ../simulation-workers && flake8 src/
+        
+    - name: Run type checking
+      run: |
+        # Frontend type checking
+        cd frontend && npm run type-check
+        
+        # Backend type checking
+        cd ../backend && mypy src/
+        
+    - name: Check commit messages
+      uses: commitlint/action@v1
+      with:
+        config: .commitlintrc.js
+
+  # Job pour les tests rapides
+  quick-tests:
+    name: Quick Tests
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ env.NODE_VERSION }}
+        cache: 'npm'
+        
+    - name: Setup Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ env.PYTHON_VERSION }}
+        cache: 'pip'
+        
+    - name: Install dependencies
+      run: |
+        cd shared && npm ci && npm run build
+        cd ../frontend && npm ci
+        cd ../backend && pip install -r requirements.txt
+        cd ../simulation-workers && pip install -r requirements.txt
+        
+    - name: Run unit tests
+      run: |
+        # Shared tests
+        cd shared/tests && npm ci && npm run test:run
+        
+        # Backend unit tests
+        cd ../../backend && pytest src/tests/unit/ -v
+        
+        # Frontend unit tests
+        cd ../frontend && npm run test:run
+        
+        # Simulation workers unit tests
+        cd ../simulation-workers && pytest src/tests/unit/ -v
+
+  # Job pour vérifier les changements
+  check-changes:
+    name: Check Changes
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+        
+    - name: Check changed files
+      run: |
+        echo "Files changed in this PR:"
+        git diff --name-only origin/main...HEAD
+        
+        # Vérifier si des fichiers sensibles ont été modifiés
+        if git diff --name-only origin/main...HEAD | grep -E '\.(env|key|secret)'; then
+          echo "⚠️ Warning: Sensitive files detected in changes"
+          exit 1
+        fi
+        
+    - name: Check for large files
+      run: |
+        # Vérifier les fichiers volumineux
+        large_files=$(find . -type f -size +10M -not -path './.git/*' -not -path './node_modules/*' -not -path './dist/*')
+        if [ -n "$large_files" ]; then
+          echo "⚠️ Warning: Large files detected:"
+          echo "$large_files"
+          exit 1
+        fi
+
+  # Job pour la sécurité
+  security:
+    name: Security Scan
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Run Trivy vulnerability scanner
+      uses: aquasecurity/trivy-action@master
+      with:
+        scan-type: 'fs'
+        scan-ref: '.'
+        format: 'sarif'
+        output: 'trivy-results.sarif'
+        
+    - name: Upload Trivy scan results
+      uses: github/codeql-action/upload-sarif@v2
+      with:
+        sarif_file: 'trivy-results.sarif'
+        
+    - name: Run npm audit
+      run: |
+        cd frontend && npm audit --audit-level moderate
+        cd ../shared && npm audit --audit-level moderate
+        
+    - name: Run pip audit
+      run: |
+        cd backend && pip install safety && safety check
+        cd ../simulation-workers && safety check
+
+  # Job pour la documentation
+  documentation:
+    name: Documentation
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ env.NODE_VERSION }}
+        cache: 'npm'
+        
+    - name: Check documentation
+      run: |
+        # Vérifier que les fichiers de documentation existent
+        if [ ! -f "README.md" ]; then
+          echo "❌ README.md missing"
+          exit 1
+        fi
+        
+        if [ ! -f "CONTRIBUTING.md" ]; then
+          echo "❌ CONTRIBUTING.md missing"
+          exit 1
+        fi
+        
+        # Vérifier que les changements d'API sont documentés
+        if git diff --name-only origin/main...HEAD | grep -E 'src/api/|src/schemas/'; then
+          echo "📝 API changes detected - please update documentation"
+        fi
+
+  # Job pour les métriques
+  metrics:
+    name: Metrics
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Calculate metrics
+      run: |
+        echo "## 📊 Code Metrics" >> $GITHUB_STEP_SUMMARY
+        
+        # Nombre de lignes de code
+        total_lines=$(find . -name "*.py" -o -name "*.ts" -o -name "*.tsx" -o -name "*.js" -o -name "*.jsx" | xargs wc -l | tail -1 | awk '{print $1}')
+        echo "- **Total lines of code**: $total_lines" >> $GITHUB_STEP_SUMMARY
+        
+        # Nombre de fichiers
+        total_files=$(find . -name "*.py" -o -name "*.ts" -o -name "*.tsx" -o -name "*.js" -o -name "*.jsx" | wc -l)
+        echo "- **Total files**: $total_files" >> $GITHUB_STEP_SUMMARY
+        
+        # Taille du repository
+        repo_size=$(du -sh . | awk '{print $1}')
+        echo "- **Repository size**: $repo_size" >> $GITHUB_STEP_SUMMARY
+        
+        # Nombre de commits dans cette PR
+        commit_count=$(git rev-list --count origin/main...HEAD)
+        echo "- **Commits in this PR**: $commit_count" >> $GITHUB_STEP_SUMMARY
