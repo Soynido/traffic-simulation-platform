@@ -35,6 +35,7 @@ import {
 } from '@/components/ui/select';
 import { connectWebSocket } from '@/services/websocket';
 import { Input } from '@/components/ui/input';
+import { LiveIndicator } from '@/components/dashboard/LiveIndicator';
 
 interface AnalyticsData {
   totalSessions: number;
@@ -70,14 +71,17 @@ export default function AnalyticsPage() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
-  const [selectedCampaignId, setSelectedCampaignId] = useState<string | ''>('');
+  const [selectedCampaignId, setSelectedCampaignId] = useState<string>('all');
   const [startDate, setStartDate] = useState<string>('');
   const [endDate, setEndDate] = useState<string>('');
+  const [liveConnected, setLiveConnected] = useState<boolean>(false);
 
-  // Mock data - in real app, this would come from API
+  // Fetch real data from API
   const fetchData = async () => {
       setLoading(true);
       try {
+        const startIso = startDate ? new Date(startDate + 'T00:00:00Z').toISOString() : undefined;
+        const endIso = endDate ? new Date(endDate + 'T23:59:59Z').toISOString() : undefined;
         // Fetch campaigns first (for selector)
         const [campaignsRes] = await Promise.all([
           listCampaigns({ page: 1, limit: 100 }),
@@ -90,13 +94,13 @@ export default function AnalyticsPage() {
         // Fetch analytics summary and sessions, filtered by campaign if selected
         const [summary, sessionsRes, personasRes] = await Promise.all([
           getAnalyticsSummary({
-            campaign_id: selectedCampaignId || undefined,
-            start_date: startDate || undefined,
-            end_date: endDate || undefined,
+            campaign_id: selectedCampaignId === 'all' ? undefined : selectedCampaignId,
+            start_date: startIso,
+            end_date: endIso,
           }),
-          selectedCampaignId
-            ? listSessionsByCampaign(selectedCampaignId, { page: 1, limit: 1000 })
-            : listSessions({ page: 1, limit: 1000 }),
+          selectedCampaignId === 'all'
+            ? listSessions({ page: 1, limit: 1000 })
+            : listSessionsByCampaign(selectedCampaignId, { page: 1, limit: 1000 }),
           listPersonas({ page: 1, limit: 1000 }),
         ]);
 
@@ -183,27 +187,10 @@ export default function AnalyticsPage() {
           personaDistribution: [],
           comparisonData: [],
         });
+      } finally {
+        setLoading(false);
       }
-      setLoading(false);
-    } catch (e) {
-      console.error('Failed to load analytics', e);
-      setData({
-        totalSessions: 0,
-        completedSessions: 0,
-        failedSessions: 0,
-        successRate: 0,
-        avgSessionDuration: 0,
-        avgPagesPerSession: 0,
-        avgActionsPerSession: 0,
-        avgRhythmScore: 0,
-        detectionRiskScore: 0,
-        sessionTimeline: [],
-        personaDistribution: [],
-        comparisonData: [],
-      });
-    }
-    setLoading(false);
-  };
+    };
 
   useEffect(() => {
     fetchData();
@@ -212,13 +199,18 @@ export default function AnalyticsPage() {
   // Live updates via WebSocket
   useEffect(() => {
     const params = new URLSearchParams();
-    if (selectedCampaignId) params.set('campaign_id', selectedCampaignId);
-    if (startDate) params.set('start_date', startDate);
-    if (endDate) params.set('end_date', endDate);
+    const startIso = startDate ? new Date(startDate + 'T00:00:00Z').toISOString() : undefined;
+    const endIso = endDate ? new Date(endDate + 'T23:59:59Z').toISOString() : undefined;
+    if (selectedCampaignId && selectedCampaignId !== 'all') params.set('campaign_id', selectedCampaignId);
+    if (startIso) params.set('start_date', startIso);
+    if (endIso) params.set('end_date', endIso);
     const path = `/ws/campaign-updates${params.toString() ? `?${params.toString()}` : ''}`;
 
     const ws = connectWebSocket(path, {
       reconnect: true,
+      onOpen: () => setLiveConnected(true),
+      onClose: () => setLiveConnected(false),
+      onError: () => setLiveConnected(false),
       onMessage: () => {
         // Throttle by relying on server tick interval (5s)
         fetchData();
@@ -267,13 +259,14 @@ export default function AnalyticsPage() {
             </p>
           </div>
           <div className="flex items-center gap-3">
+            <LiveIndicator isLive={liveConnected} />
             <div className="w-64">
               <Select value={selectedCampaignId} onValueChange={setSelectedCampaignId}>
                 <SelectTrigger>
                   <SelectValue placeholder="All campaigns" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="">All campaigns</SelectItem>
+                  <SelectItem value="all">All campaigns</SelectItem>
                   {campaigns.map((c) => (
                     <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
                   ))}

@@ -84,7 +84,7 @@ echo "✅ Frontend démarré avec succès!"
 
 # Démarrer les workers de simulation
 echo "🤖 Démarrage des workers de simulation..."
-docker-compose up -d simulation-workers
+docker-compose up -d simulation-worker
 
 echo "✅ Workers de simulation démarrés avec succès!"
 
@@ -101,7 +101,7 @@ echo ""
 echo "📝 Logs:"
 echo "   docker-compose logs -f backend"
 echo "   docker-compose logs -f frontend"
-echo "   docker-compose logs -f simulation-workers"
+echo "   docker-compose logs -f simulation-worker"
 echo ""
 echo "🛑 Pour arrêter:"
 echo "   docker-compose down"

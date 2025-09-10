@@ -1,117 +1,148 @@
 """
-Service Session pour les simulation workers.
+Service Session pour les simulation workers (persistance réelle en base).
 """
-from typing import List, Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, update, delete
-from sqlalchemy.dialects.postgresql import UUID
-
-from ..models.session import Session
-from ..models.page_visit import PageVisit
-from ..models.action import Action
+from sqlalchemy import text
 
 
 class SessionService:
-    """Service pour la gestion des sessions."""
-    
+    """Service pour persister sessions, visites et actions dans la base backend."""
+
     def __init__(self, db_session: AsyncSession):
-        self.db_session = db_session
-    
-    async def get_session(self, session_id: str) -> Optional[Session]:
-        """Récupérer une session par son ID."""
+        self.db = db_session
+
+    async def get_session(self, session_id: str) -> Optional[Dict[str, Any]]:
         try:
-            result = await self.db_session.execute(
-                select(Session).where(Session.id == session_id)
-            )
-            session = result.scalar_one_or_none()
-            
-            if session:
-                return Session(**session.__dict__)
+            q = text("SELECT id, status FROM sessions WHERE id = :sid")
+            res = await self.db.execute(q, {"sid": session_id})
+            row = res.first()
+            return dict(row._mapping) if row else None
+        except Exception:
             return None
-            
-        except Exception as e:
-            print(f"Erreur lors de la récupération de la session {session_id}: {e}")
-            return None
-    
-    async def get_all_sessions(self, limit: int = 100) -> List[Session]:
-        """Récupérer toutes les sessions."""
-        try:
-            result = await self.db_session.execute(
-                select(Session).limit(limit)
-            )
-            sessions = result.scalars().all()
-            
-            return [Session(**session.__dict__) for session in sessions]
-            
-        except Exception as e:
-            print(f"Erreur lors de la récupération des sessions: {e}")
-            return []
-    
-    async def create_session(self, session_data: Dict[str, Any]) -> Optional[Session]:
-        """Créer une nouvelle session."""
-        try:
-            session = Session(**session_data)
-            
-            # Ici, vous devriez insérer en base de données
-            # Pour l'instant, on retourne juste l'objet créé
-            return session
-            
-        except Exception as e:
-            print(f"Erreur lors de la création de la session: {e}")
-            return None
-    
+
     async def update_session_status(self, session_id: str, status: str) -> bool:
-        """Mettre à jour le statut d'une session."""
         try:
-            # Ici, vous devriez mettre à jour en base de données
+            if status == 'running':
+                q = text("UPDATE sessions SET status = :st, started_at = now() WHERE id = :sid")
+            elif status in ('completed', 'failed', 'timeout'):
+                q = text("UPDATE sessions SET status = :st, completed_at = now() WHERE id = :sid")
+            else:
+                q = text("UPDATE sessions SET status = :st WHERE id = :sid")
+            await self.db.execute(q, {"sid": session_id, "st": status})
+            await self.db.commit()
             return True
-            
-        except Exception as e:
-            print(f"Erreur lors de la mise à jour du statut de la session {session_id}: {e}")
+        except Exception:
             return False
-    
+
     async def update_session_completion(self, session_id: str, pages_visited: int, actions_performed: int, total_duration: float) -> bool:
-        """Mettre à jour les métriques de completion d'une session."""
         try:
-            # Ici, vous devriez mettre à jour en base de données
+            q = text(
+                """
+                UPDATE sessions 
+                SET status = 'completed',
+                    session_duration_ms = :dur,
+                    pages_visited = :pages,
+                    total_actions = :acts,
+                    completed_at = now()
+                WHERE id = :sid
+                """
+            )
+            await self.db.execute(q, {
+                "sid": session_id,
+                "dur": int(total_duration * 1000),
+                "pages": pages_visited,
+                "acts": actions_performed,
+            })
+            await self.db.commit()
             return True
-            
-        except Exception as e:
-            print(f"Erreur lors de la mise à jour de la completion de la session {session_id}: {e}")
+        except Exception:
             return False
-    
-    async def create_page_visit(self, visit_data: Dict[str, Any]) -> Optional[PageVisit]:
-        """Créer une visite de page."""
+
+    async def create_page_visit(self, visit_data: Dict[str, Any]) -> Optional[str]:
+        """Insère une page_visit et retourne son id."""
         try:
-            visit = PageVisit(**visit_data)
-            
-            # Ici, vous devriez insérer en base de données
-            # Pour l'instant, on retourne juste l'objet créé
-            return visit
-            
-        except Exception as e:
-            print(f"Erreur lors de la création de la visite de page: {e}")
+            q = text(
+                """
+                INSERT INTO page_visits (session_id, url, title, visit_order, arrived_at, dwell_time_ms, actions_count, scroll_depth_percent)
+                VALUES (:sid, :url, :title, :vorder, now(), :dwell, :acnt, :scroll)
+                RETURNING id
+                """
+            )
+            params = {
+                "sid": visit_data["session_id"],
+                "url": visit_data.get("url", ""),
+                "title": visit_data.get("title"),
+                "vorder": int(visit_data.get("page_number", 1) or 1),
+                "dwell": int(visit_data.get("load_time", 0) or 0),
+                "acnt": 0,
+                "scroll": 0,
+            }
+            res = await self.db.execute(q, params)
+            row = res.first()
+            await self.db.commit()
+            return str(row[0]) if row else None
+        except Exception:
             return None
-    
-    async def create_action(self, action_data: Dict[str, Any]) -> Optional[Action]:
-        """Créer une action."""
+
+    async def create_action(self, action_data: Dict[str, Any]) -> Optional[str]:
+        """Insère une action pour la page_visit correspondant à (session_id, page_number)."""
         try:
-            action = Action(**action_data)
-            
-            # Ici, vous devriez insérer en base de données
-            # Pour l'instant, on retourne juste l'objet créé
-            return action
-            
-        except Exception as e:
-            print(f"Erreur lors de la création de l'action: {e}")
+            # Récupérer la page_visit
+            q_visit = text(
+                "SELECT id FROM page_visits WHERE session_id = :sid AND visit_order = :vorder LIMIT 1"
+            )
+            res = await self.db.execute(q_visit, {
+                "sid": action_data["session_id"],
+                "vorder": int(action_data.get("page_number", 1) or 1)
+            })
+            vrow = res.first()
+            if not vrow:
+                return None
+            page_visit_id = vrow[0]
+
+            # Déterminer l'ordre
+            q_ord = text("SELECT COALESCE(MAX(action_order), 0) + 1 FROM actions WHERE page_visit_id = :pvid")
+            orow = (await self.db.execute(q_ord, {"pvid": page_visit_id})).first()
+            action_order = int(orow[0]) if orow else 1
+
+            # Mapper le type
+            raw_type = str(action_data.get("action_type", "click")).lower()
+            action_type = "type" if raw_type in ("typing", "type") else raw_type
+
+            q_ins = text(
+                """
+                INSERT INTO actions (page_visit_id, action_type, element_selector, element_text, coordinates_x, coordinates_y, input_value, action_order, duration_ms)
+                VALUES (:pvid, :atype, :selector, :text, :x, :y, :input, :aorder, :dur)
+                RETURNING id
+                """
+            )
+            details = action_data.get("details") or {}
+            params = {
+                "pvid": page_visit_id,
+                "atype": action_type,
+                "selector": details.get("selector"),
+                "text": details.get("text"),
+                "x": details.get("x"),
+                "y": details.get("y"),
+                "input": details.get("text_length"),
+                "aorder": action_order,
+                "dur": int(details.get("duration_ms", 0) or 0),
+            }
+            row = (await self.db.execute(q_ins, params)).first()
+
+            # Incrémenter le compteur d'actions de la visite
+            await self.db.execute(text("UPDATE page_visits SET actions_count = actions_count + 1 WHERE id = :pvid"), {"pvid": page_visit_id})
+
+            await self.db.commit()
+            return str(row[0]) if row else None
+        except Exception:
             return None
-    
+
     async def delete_session(self, session_id: str) -> bool:
-        """Supprimer une session."""
         try:
-            # Ici, vous devriez supprimer de la base de données
+            await self.db.execute(text("DELETE FROM sessions WHERE id = :sid"), {"sid": session_id})
+            await self.db.commit()
             return True
-            
-        except Exception as e:
-            print(f"Erreur lors de la suppression de la session {session_id}: {e}")
+        except Exception:
             return False

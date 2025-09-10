@@ -36,8 +36,8 @@ services:
   # Backend API
   backend:
     build:
-      context: .
-      dockerfile: ./backend/Dockerfile
+      context: ./backend
+      dockerfile: Dockerfile
     container_name: traffic-backend
     ports:
       - "8000:8000"
@@ -53,15 +53,20 @@ services:
       redis:
         condition: service_healthy
     volumes:
-      - ./backend:/app/backend
-      - ./shared:/app/shared
-    command: uvicorn backend.src.main:app --host 0.0.0.0 --port 8000 --reload
+      - ./backend:/app
+    command: uvicorn src.main:app --host 0.0.0.0 --port 8000 --reload
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
 
   # Frontend Dashboard
   frontend:
     build:
-      context: .
-      dockerfile: ./frontend/Dockerfile
+      context: ./frontend
+      dockerfile: Dockerfile.dev
     container_name: traffic-frontend
     ports:
       - "3001:3000"
@@ -70,18 +75,18 @@ services:
       - NEXTAUTH_URL=http://localhost:3001
       - NEXTAUTH_SECRET=dev-secret-change-in-production
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
     volumes:
-      - ./frontend:/app/frontend
-      - ./shared:/app/shared
-      - /app/frontend/node_modules
-    command: npm run dev --prefix frontend
+      - ./frontend:/app
+      - /app/node_modules
+    command: npm run dev
 
   # Simulation Workers
   simulation-worker:
     build:
-      context: .
-      dockerfile: ./simulation-workers/Dockerfile
+      context: ./simulation-workers
+      dockerfile: Dockerfile
     container_name: traffic-worker-1
     environment:
       - DATABASE_URL=postgresql+asyncpg://traffic_user:traffic_pass@postgres:5432/traffic_db
@@ -94,10 +99,17 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      backend:
+        condition: service_healthy
     volumes:
-      - ./simulation-workers:/app/simulation-workers
-      - ./shared:/app/shared
-    command: python -m simulation-workers.src.workers.simulation_worker
+      - ./simulation-workers:/app
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import sys; sys.exit(0)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
 
 volumes:
   postgres_data:

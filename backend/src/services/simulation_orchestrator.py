@@ -5,6 +5,7 @@ Provides job queue management and simulation coordination.
 import asyncio
 import json
 from typing import List, Optional, Dict, Any
+import os
 from uuid import UUID
 from datetime import datetime, timedelta
 
@@ -14,6 +15,7 @@ from sqlalchemy.orm import selectinload
 
 from ..models import Campaign, Session, CampaignStatus, SessionStatus
 from ..database.connection import get_db_session
+from ..queue.redis_client import RedisQueueClient
 
 
 class SimulationOrchestrator:
@@ -25,6 +27,8 @@ class SimulationOrchestrator:
         self.active_workers: Dict[str, Dict[str, Any]] = {}
         self.job_queue: List[Dict[str, Any]] = []
         self.max_concurrent_sessions = 10
+        # Queue client to dispatch jobs to workers
+        self.redis_client = RedisQueueClient(os.getenv("REDIS_URL", "redis://localhost:6379"))
     
     async def start_campaign_simulation(self, campaign_id: UUID) -> bool:
         """Start simulation for a campaign."""
@@ -32,6 +36,11 @@ class SimulationOrchestrator:
         if not campaign:
             return False
         
+        # If campaign is already running, consider it started successfully
+        if campaign.status == CampaignStatus.RUNNING:
+            return True
+        
+        # Only start if campaign is pending
         if campaign.status != CampaignStatus.PENDING:
             return False
         
@@ -358,8 +367,11 @@ class SimulationOrchestrator:
             }
             self.job_queue.append(job)
         
-        # Process queue
-        await self._process_queue()
+        # Enqueue jobs to Redis for workers (fire-and-forget)
+        for job in list(self.job_queue):
+            await self._send_job_to_queue(job)
+        # Clear local queue (Redis is the source of truth)
+        self.job_queue.clear()
     
     async def _process_queue(self) -> None:
         """Process the job queue."""
@@ -429,10 +441,17 @@ class SimulationOrchestrator:
                 await session.commit()
     
     async def _send_job_to_worker(self, worker_id: str, job: Dict[str, Any]) -> None:
-        """Send job to worker (placeholder for message queue integration)."""
-        # In a real implementation, this would send a message to a Redis queue
-        # or similar message broker
-        print(f"Sending job to worker {worker_id}: {job['session_id']}")
+        """Backward-compatible wrapper: enqueue job to queue instead of direct send."""
+        await self._send_job_to_queue(job)
+
+    async def _send_job_to_queue(self, job: Dict[str, Any]) -> None:
+        """Enqueue a job in Redis so any worker can pick it up."""
+        payload = {
+            'type': 'simulation',
+            'id': job.get('id') or str(UUID(job['session_id'])),
+            **job,
+        }
+        await self.redis_client.enqueue_task(payload)
     
     def _generate_user_agent(self, rotation_enabled: bool) -> str:
         """Generate user agent string."""

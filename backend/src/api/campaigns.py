@@ -196,8 +196,15 @@ async def start_campaign(
             detail="Campaign not found"
         )
     
-    # Check if campaign can be started
-    if not campaign.can_start():
+    # Check if campaign can be started or is already running
+    if campaign.status == 'running':
+        # Campaign is already running, return current status
+        return CampaignStartResponse(
+            campaign_id=campaign_id,
+            status=campaign.status,
+            message="Campaign is already running"
+        )
+    elif not campaign.can_start():
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail=f"Cannot start campaign in status: {campaign.status}"
@@ -222,7 +229,7 @@ async def start_campaign(
         
         return CampaignStartResponse(
             campaign_id=campaign_id,
-            status=started_campaign.status.value,
+            status=started_campaign.status,
             message="Campaign started successfully"
         )
     except ValueError as e:

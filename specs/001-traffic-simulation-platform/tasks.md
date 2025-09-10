@@ -135,13 +135,13 @@
 ## Phase 3.5: Integration & Middleware
 
 - [x] T080 Database connection setup in backend/src/database/connection.py
-- [ ] T081 Redis connection and job queue setup in backend/src/queue/redis_client.py
+- [x] T081 Redis connection and job queue setup in backend/src/queue/redis_client.py
 - [ ] T082 Authentication middleware in backend/src/middleware/auth.py
 - [x] T083 CORS and security headers in backend/src/middleware/security.py  
 - [x] T084 Request/response logging in backend/src/middleware/logging.py
 - [ ] T085 Error handling middleware in backend/src/middleware/error_handler.py
 - [ ] T086 Input validation middleware in backend/src/middleware/validation.py
-- [ ] T087 WebSocket handler for real-time updates in backend/src/websockets/campaign_updates.py
+- [x] T087 WebSocket handler for real-time updates in backend/src/websockets/campaign_updates.py
 
 ## Phase 3.6: Polish & Performance
 

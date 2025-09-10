@@ -299,7 +299,7 @@ class CampaignService:
         
         # Validate URL format (basic check)
         target_url = campaign_data.get('target_url', '')
-        if not target_url.startswith(('http://', 'https://')):
+        if not str(target_url).startswith(('http://', 'https://')):
             errors.append("target_url must be a valid HTTP/HTTPS URL")
         
         # Validate persona exists

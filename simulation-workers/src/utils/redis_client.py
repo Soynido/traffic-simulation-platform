@@ -4,6 +4,7 @@ Client Redis pour la gestion des tâches de simulation.
 import json
 import asyncio
 import logging
+import time
 from typing import Dict, List, Any, Optional
 import redis.asyncio as redis
 

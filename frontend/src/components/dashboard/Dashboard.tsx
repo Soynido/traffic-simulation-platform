@@ -20,6 +20,15 @@ import {
   RefreshCw
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { listCampaigns } from '@/services/campaigns';
+import { listPersonas } from '@/services/api';
+import { listSessions } from '@/services/sessions';
+import { getAnalyticsSummary } from '@/services/analytics';
+import { 
+  buildSessionTimeline,
+  buildPersonaDistribution,
+  buildHumanVsSimulatedComparison,
+} from '@/utils/chartUtils';
 
 interface DashboardData {
   totalPersonas: number;
@@ -54,40 +63,68 @@ export function Dashboard({ className }: DashboardProps) {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
-  // Mock data - in real app, this would come from API
+  // Fetch real data from API
   useEffect(() => {
     const fetchData = async () => {
       setLoading(true);
-      // Simulate API call
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      
-      setData({
-        totalPersonas: 12,
-        totalCampaigns: 8,
-        activeSessions: 156,
-        successRate: 87.5,
-        sessionTimeline: [
-          { timestamp: '2024-01-15T00:00:00Z', sessions: 45, completed: 42, failed: 3 },
-          { timestamp: '2024-01-15T01:00:00Z', sessions: 52, completed: 48, failed: 4 },
-          { timestamp: '2024-01-15T02:00:00Z', sessions: 38, completed: 35, failed: 3 },
-          { timestamp: '2024-01-15T03:00:00Z', sessions: 41, completed: 38, failed: 3 },
-          { timestamp: '2024-01-15T04:00:00Z', sessions: 29, completed: 27, failed: 2 },
-          { timestamp: '2024-01-15T05:00:00Z', sessions: 33, completed: 31, failed: 2 },
-        ],
-        personaDistribution: [
-          { name: 'Rapid Visitor', value: 45, color: '#3b82f6' },
-          { name: 'Careful Reader', value: 32, color: '#10b981' },
-          { name: 'Social Browser', value: 23, color: '#f59e0b' },
-          { name: 'Mobile User', value: 18, color: '#ef4444' },
-        ],
-        comparisonData: [
-          { metric: 'Page Views', human: 1200, simulated: 1150, difference: 50 },
-          { metric: 'Session Duration', human: 180, simulated: 175, difference: 5 },
-          { metric: 'Bounce Rate', human: 35, simulated: 38, difference: 3 },
-          { metric: 'Click Rate', human: 12, simulated: 11, difference: 1 },
-        ],
-      });
-      setLoading(false);
+      try {
+        const [campaignsRes, personasRes, sessionsRes, analyticsRes] = await Promise.all([
+          listCampaigns({ page: 1, limit: 1000 }),
+          listPersonas({ page: 1, limit: 1000 }),
+          listSessions({ page: 1, limit: 1000 }),
+          getAnalyticsSummary({})
+        ]);
+
+        // Handle responses
+        const campaigns = Array.isArray(campaignsRes) ? campaignsRes : (campaignsRes?.items || []);
+        const personas = Array.isArray(personasRes) ? personasRes : (personasRes?.items || []);
+        const sessions = Array.isArray(sessionsRes) ? sessionsRes : (sessionsRes?.items || []);
+
+        // Count active sessions (running status)
+        const activeSessions = sessions.filter((s: any) => s.status === 'running').length;
+
+        // Build charts with real data
+        const sessionTimeline = buildSessionTimeline(
+          sessions.map((s: any) => ({ created_at: s.created_at, status: s.status })),
+          { bucket: 'hour' }
+        );
+
+        const personasById = personas.reduce((acc: any, p: any) => {
+          acc[p.id] = { name: p.name };
+          return acc;
+        }, {});
+
+        const personaDistribution = buildPersonaDistribution(
+          sessions.map((s: any) => ({ persona_id: s.persona_id })),
+          personasById
+        );
+
+        const comparisonData = buildHumanVsSimulatedComparison(analyticsRes, analyticsRes);
+
+        setData({
+          totalPersonas: personas.length,
+          totalCampaigns: campaigns.length,
+          activeSessions,
+          successRate: analyticsRes.success_rate * 100,
+          sessionTimeline,
+          personaDistribution,
+          comparisonData,
+        });
+      } catch (error) {
+        console.error('Failed to fetch dashboard data:', error);
+        // Fallback to empty/default data
+        setData({
+          totalPersonas: 0,
+          totalCampaigns: 0,
+          activeSessions: 0,
+          successRate: 0,
+          sessionTimeline: [],
+          personaDistribution: [],
+          comparisonData: [],
+        });
+      } finally {
+        setLoading(false);
+      }
     };
 
     fetchData();
@@ -95,9 +132,50 @@ export function Dashboard({ className }: DashboardProps) {
 
   const handleRefresh = async () => {
     setRefreshing(true);
-    // Simulate refresh
-    await new Promise(resolve => setTimeout(resolve, 500));
-    setRefreshing(false);
+    try {
+      const [campaignsRes, personasRes, sessionsRes, analyticsRes] = await Promise.all([
+        listCampaigns({ page: 1, limit: 1000 }),
+        listPersonas({ page: 1, limit: 1000 }),
+        listSessions({ page: 1, limit: 1000 }),
+        getAnalyticsSummary({})
+      ]);
+
+      const campaigns = Array.isArray(campaignsRes) ? campaignsRes : (campaignsRes?.items || []);
+      const personas = Array.isArray(personasRes) ? personasRes : (personasRes?.items || []);
+      const sessions = Array.isArray(sessionsRes) ? sessionsRes : (sessionsRes?.items || []);
+
+      const activeSessions = sessions.filter((s: any) => s.status === 'running').length;
+      const sessionTimeline = buildSessionTimeline(
+        sessions.map((s: any) => ({ created_at: s.created_at, status: s.status })),
+        { bucket: 'hour' }
+      );
+
+      const personasById = personas.reduce((acc: any, p: any) => {
+        acc[p.id] = { name: p.name };
+        return acc;
+      }, {});
+
+      const personaDistribution = buildPersonaDistribution(
+        sessions.map((s: any) => ({ persona_id: s.persona_id })),
+        personasById
+      );
+
+      const comparisonData = buildHumanVsSimulatedComparison(analyticsRes, analyticsRes);
+
+      setData({
+        totalPersonas: personas.length,
+        totalCampaigns: campaigns.length,
+        activeSessions,
+        successRate: analyticsRes.success_rate * 100,
+        sessionTimeline,
+        personaDistribution,
+        comparisonData,
+      });
+    } catch (error) {
+      console.error('Failed to refresh dashboard data:', error);
+    } finally {
+      setRefreshing(false);
+    }
   };
 
   if (loading) {

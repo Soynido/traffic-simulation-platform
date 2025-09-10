@@ -6,6 +6,14 @@ import { PersonaForm } from '@/components/personas/PersonaForm';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Plus } from 'lucide-react';
+import { 
+  listPersonas, 
+  createPersona, 
+  updatePersona, 
+  deletePersona,
+  type Persona as APIPersona 
+} from '@/services/api';
+import { useToast } from '@/components/ui/toast';
 
 interface Persona {
   id: string;
@@ -29,65 +37,22 @@ export default function PersonasPage() {
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [editingPersona, setEditingPersona] = useState<Persona | null>(null);
+  const { success, error } = useToast();
 
-  // Mock data - in real app, this would come from API
+  // Fetch real data from API
   useEffect(() => {
     const fetchPersonas = async () => {
       setLoading(true);
-      // Simulate API call
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      
-      setPersonas([
-        {
-          id: '1',
-          name: 'Rapid Visitor',
-          description: 'Quick browser who skims content',
-          session_duration_min: 30,
-          session_duration_max: 90,
-          pages_min: 1,
-          pages_max: 3,
-          actions_per_page_min: 2,
-          actions_per_page_max: 5,
-          scroll_probability: 0.6,
-          click_probability: 0.4,
-          typing_probability: 0.1,
-          created_at: '2024-01-15T10:00:00Z',
-          updated_at: '2024-01-15T10:00:00Z',
-        },
-        {
-          id: '2',
-          name: 'Careful Reader',
-          description: 'Thorough reader who examines content carefully',
-          session_duration_min: 120,
-          session_duration_max: 300,
-          pages_min: 3,
-          pages_max: 8,
-          actions_per_page_min: 5,
-          actions_per_page_max: 15,
-          scroll_probability: 0.9,
-          click_probability: 0.7,
-          typing_probability: 0.3,
-          created_at: '2024-01-15T11:00:00Z',
-          updated_at: '2024-01-15T11:00:00Z',
-        },
-        {
-          id: '3',
-          name: 'Social Browser',
-          description: 'User who focuses on social features and sharing',
-          session_duration_min: 60,
-          session_duration_max: 180,
-          pages_min: 2,
-          pages_max: 5,
-          actions_per_page_min: 3,
-          actions_per_page_max: 8,
-          scroll_probability: 0.7,
-          click_probability: 0.8,
-          typing_probability: 0.2,
-          created_at: '2024-01-15T12:00:00Z',
-          updated_at: '2024-01-15T12:00:00Z',
-        },
-      ]);
-      setLoading(false);
+      try {
+        const response = await listPersonas({ page: 1, limit: 1000 });
+        const personaItems = Array.isArray(response) ? response : (response?.items || []);
+        setPersonas(personaItems as Persona[]);
+      } catch (error) {
+        console.error('Failed to fetch personas:', error);
+        setPersonas([]);
+      } finally {
+        setLoading(false);
+      }
     };
 
     fetchPersonas();
@@ -104,32 +69,40 @@ export default function PersonasPage() {
   };
 
   const handleDeletePersona = async (persona: Persona) => {
-    if (confirm(`Are you sure you want to delete "${persona.name}"?`)) {
-      // Simulate API call
-      setPersonas(prev => prev.filter(p => p.id !== persona.id));
+    if (confirm(`Êtes-vous sûr de vouloir supprimer "${persona.name}" ?`)) {
+      try {
+        await deletePersona(persona.id);
+        setPersonas(prev => prev.filter(p => p.id !== persona.id));
+        success('Persona supprimé', `"${persona.name}" a été supprimé avec succès`);
+      } catch (err) {
+        console.error('Failed to delete persona:', err);
+        error('Erreur', 'Impossible de supprimer le persona. Veuillez réessayer.');
+      }
     }
   };
 
   const handleFormSubmit = async (data: any) => {
-    // Simulate API call
-    if (editingPersona) {
-      setPersonas(prev => prev.map(p => 
-        p.id === editingPersona.id 
-          ? { ...p, ...data, updated_at: new Date().toISOString() }
-          : p
-      ));
-    } else {
-      const newPersona: Persona = {
-        id: Date.now().toString(),
-        ...data,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      };
-      setPersonas(prev => [...prev, newPersona]);
+    try {
+      if (editingPersona) {
+        // Update existing persona
+        const updatedPersona = await updatePersona(editingPersona.id, data);
+        setPersonas(prev => prev.map(p => 
+          p.id === editingPersona.id ? updatedPersona as Persona : p
+        ));
+        success('Persona modifié', `"${data.name || editingPersona.name}" a été mis à jour`);
+      } else {
+        // Create new persona
+        const newPersona = await createPersona(data);
+        setPersonas(prev => [...prev, newPersona as Persona]);
+        success('Persona créé', `"${data.name}" a été créé avec succès`);
+      }
+      
+      setShowForm(false);
+      setEditingPersona(null);
+    } catch (err) {
+      console.error('Failed to save persona:', err);
+      error('Erreur', 'Impossible de sauvegarder le persona. Veuillez réessayer.');
     }
-    
-    setShowForm(false);
-    setEditingPersona(null);
   };
 
   const handleFormCancel = () => {

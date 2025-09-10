@@ -96,13 +96,21 @@ class Campaign(Base):
     @classmethod
     def from_dict(cls, data: dict) -> 'Campaign':
         """Create campaign from dictionary."""
+        persona_id = data['persona_id']
+        if isinstance(persona_id, str):
+            persona_id = UUID(persona_id)
+        
+        target_url = data['target_url']
+        if hasattr(target_url, '__str__'):
+            target_url = str(target_url)
+        
         return cls(
             name=data['name'],
             description=data.get('description'),
-            target_url=data['target_url'],
+            target_url=target_url,
             total_sessions=data['total_sessions'],
             concurrent_sessions=data.get('concurrent_sessions', 10),
-            persona_id=UUID(data['persona_id']),
+            persona_id=persona_id,
             rate_limit_delay_ms=data.get('rate_limit_delay_ms', 1000),
             user_agent_rotation=data.get('user_agent_rotation', True),
             respect_robots_txt=data.get('respect_robots_txt', True)

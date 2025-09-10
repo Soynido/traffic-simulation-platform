@@ -1,6 +1,5 @@
 # Browser Automation
 playwright==1.40.0
-pyppeteer==1.0.2
 
 # HTTP Client & Networking  
 httpx==0.25.2

@@ -9,14 +9,21 @@ import sys
 from typing import Dict, Any, Optional
 import json
 import time
+import random
 
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
 from sqlalchemy.orm import sessionmaker
 
-from ..core.simulation_engine import SimulationEngine, SimulationConfig
-from ..services import PersonaService, CampaignService, SessionService
-from ..utils.redis_client import RedisClient
-from ..utils.logger import setup_logging
+import sys
+import os
+sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
+
+from core.simulation_engine import SimulationEngine, SimulationConfig
+from services.session_service import SessionService
+from services.campaign_service import CampaignService
+from services.persona_service import PersonaService
+from utils.redis_client import RedisQueueClient as RedisClient
+from utils.logger import setup_logging
 
 
 class SimulationWorker:
@@ -206,10 +213,13 @@ class SimulationWorker:
                 # Créer le moteur de simulation
                 simulation_engine = SimulationEngine(session)
                 
-                # Démarrer la simulation
-                session_id = await simulation_engine.start_simulation(config)
+                # Utiliser la session existante fournie par l'orchestrateur
+                session_id = task_data.get('session_id')
+                if not session_id:
+                    self.logger.error("Task missing session_id; aborting")
+                    return
                 
-                # Attendre la fin de la simulation
+                # Exécuter la simulation sur cette session
                 result = await simulation_engine._run_simulation(session_id, config)
                 
                 # Mettre à jour le statut de la tâche

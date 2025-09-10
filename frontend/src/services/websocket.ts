@@ -23,17 +23,33 @@ export function connectWebSocket(path = '/ws', opts: WSOptions = {}) {
   const delay = opts.reconnectDelayMs ?? 1500;
 
   function open() {
-    ws = new WebSocket(target, opts.protocols);
+    try {
+      ws = new WebSocket(target, opts.protocols);
 
-    ws.onopen = (ev) => opts.onOpen?.(ev);
-    ws.onmessage = (ev) => opts.onMessage?.(ev);
-    ws.onerror = (ev) => opts.onError?.(ev);
-    ws.onclose = (ev) => {
-      opts.onClose?.(ev);
-      if (!closedByClient && reconnect) {
-        setTimeout(open, delay);
-      }
-    };
+      ws.onopen = (ev) => opts.onOpen?.(ev);
+      ws.onmessage = (ev) => {
+        try {
+          const data = JSON.parse(ev.data);
+          opts.onMessage?.(data);
+        } catch (e) {
+          opts.onMessage?.(ev);
+        }
+      };
+      ws.onerror = (ev) => {
+        console.debug(`WebSocket error for ${target}:`, ev);
+        opts.onError?.(ev);
+      };
+      ws.onclose = (ev) => {
+        opts.onClose?.(ev);
+        // Only reconnect if explicitly enabled and not a 404/protocol error
+        if (!closedByClient && reconnect && ev.code !== 1002 && ev.code !== 1006) {
+          setTimeout(open, delay);
+        }
+      };
+    } catch (error) {
+      console.debug(`Failed to create WebSocket connection to ${target}:`, error);
+      opts.onError?.(error as Event);
+    }
   }
 
   open();

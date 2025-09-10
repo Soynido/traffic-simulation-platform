@@ -28,7 +28,9 @@ import {
   Filter,
   Play,
   Pause,
-  Square
+  Square,
+  CheckCircle,
+  AlertCircle
 } from 'lucide-react';
 import { StatusBadge } from '@/components/ui/StatusBadge';
 import { cn } from '@/lib/utils';
@@ -158,16 +160,45 @@ export function CampaignTable({
           </div>
         );
       case 'paused':
-        return onResume ? (
-          <Button
-            size="sm"
-            onClick={() => onResume(campaign)}
-            className="bg-blue-600 hover:bg-blue-700"
-          >
-            <Play className="h-4 w-4 mr-1" />
-            Resume
-          </Button>
-        ) : null;
+        return (
+          <div className="flex space-x-1">
+            {onResume && (
+              <Button
+                size="sm"
+                onClick={() => onResume(campaign)}
+                className="bg-blue-600 hover:bg-blue-700"
+              >
+                <Play className="h-4 w-4 mr-1" />
+                Resume
+              </Button>
+            )}
+            {onStop && (
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => onStop(campaign)}
+                className="border-red-600 text-red-600 hover:bg-red-50"
+              >
+                <Square className="h-4 w-4 mr-1" />
+                Stop
+              </Button>
+            )}
+          </div>
+        );
+      case 'completed':
+        return (
+          <div className="text-sm text-green-600 font-medium flex items-center">
+            <CheckCircle className="h-4 w-4 mr-1" />
+            Completed
+          </div>
+        );
+      case 'failed':
+        return (
+          <div className="text-sm text-red-600 font-medium flex items-center">
+            <AlertCircle className="h-4 w-4 mr-1" />
+            Failed
+          </div>
+        );
       default:
         return null;
     }
