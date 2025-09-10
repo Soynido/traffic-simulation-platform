@@ -4,6 +4,7 @@ Provides job queue management and simulation coordination.
 """
 import asyncio
 import json
+import logging
 from typing import List, Optional, Dict, Any
 import os
 from uuid import UUID
@@ -16,6 +17,7 @@ from sqlalchemy.orm import selectinload
 from ..models import Campaign, Session, CampaignStatus, SessionStatus
 from ..database.connection import get_db_session
 from ..queue.redis_client import RedisQueueClient
+from ..models import Persona  # import persona model for enrichment
 
 
 class SimulationOrchestrator:
@@ -29,6 +31,8 @@ class SimulationOrchestrator:
         self.max_concurrent_sessions = 10
         # Queue client to dispatch jobs to workers
         self.redis_client = RedisQueueClient(os.getenv("REDIS_URL", "redis://localhost:6379"))
+        # Logger
+        self.logger = logging.getLogger(__name__)
     
     async def start_campaign_simulation(self, campaign_id: UUID) -> bool:
         """Start simulation for a campaign."""
@@ -151,7 +155,7 @@ class SimulationOrchestrator:
         
         return {
             'campaign_id': str(campaign_id),
-            'status': campaign.status.value,
+            'status': campaign.status,
             'total_sessions': total_sessions,
             'session_counts': session_counts,
             'success_rate': success_rate,
@@ -353,8 +357,25 @@ class SimulationOrchestrator:
                 result = await session.execute(query)
                 sessions = result.scalars().all()
         
-        # Add sessions to queue
+        # Enrich with campaign and persona data to build simulation config
+        # Load campaign details
+        campaign = await self._get_campaign(campaign_id)
+        # Load personas in batch
+        persona_ids = list({s.persona_id for s in sessions})
+        personas_map = {}
+        if persona_ids:
+            p_query = select(Persona).where(Persona.id.in_(persona_ids))
+            if self.db_session:
+                presult = await self.db_session.execute(p_query)
+            else:
+                async with get_db_session() as session:
+                    presult = await session.execute(p_query)
+            for p in presult.scalars().all():
+                personas_map[p.id] = p
+
+        # Build jobs with full config and enqueue immediately
         for session in sessions:
+            p = personas_map.get(session.persona_id)
             job = {
                 'session_id': str(session.id),
                 'campaign_id': str(campaign_id),
@@ -363,14 +384,23 @@ class SimulationOrchestrator:
                 'user_agent': session.user_agent,
                 'viewport_width': session.viewport_width,
                 'viewport_height': session.viewport_height,
-                'created_at': datetime.utcnow().isoformat()
+                'created_at': datetime.utcnow().isoformat(),
+                # Simulation config fields
+                'target_url': session.start_url,
+                'max_pages': getattr(p, 'pages_max', 3) if p else 3,
+                'max_actions_per_page': getattr(p, 'actions_per_page_max', 10) if p else 10,
+                'session_duration_min': getattr(p, 'session_duration_min', 60) if p else 60,
+                'session_duration_max': getattr(p, 'session_duration_max', 120) if p else 120,
+                'scroll_probability': float(getattr(p, 'scroll_probability', 0.8)) if p else 0.8,
+                'click_probability': float(getattr(p, 'click_probability', 0.6)) if p else 0.6,
+                'typing_probability': float(getattr(p, 'typing_probability', 0.1)) if p else 0.1,
+                'rate_limit_delay_ms': getattr(campaign, 'rate_limit_delay_ms', 1000) if campaign else 1000,
+                'user_agent_rotation': getattr(campaign, 'user_agent_rotation', True) if campaign else True,
+                'respect_robots_txt': getattr(campaign, 'respect_robots_txt', True) if campaign else True,
             }
-            self.job_queue.append(job)
-        
-        # Enqueue jobs to Redis for workers (fire-and-forget)
-        for job in list(self.job_queue):
             await self._send_job_to_queue(job)
-        # Clear local queue (Redis is the source of truth)
+
+        # Clear local queue (we enqueue directly)
         self.job_queue.clear()
     
     async def _process_queue(self) -> None:
@@ -468,3 +498,78 @@ class SimulationOrchestrator:
         
         import random
         return random.choice(user_agents)
+    
+    async def start_campaign_with_real_navigation(self, campaign_id: UUID) -> bool:
+        """
+        Lance une campagne avec navigation réelle vers l'URL cible
+        
+        Args:
+            campaign_id: ID de la campagne à lancer
+            
+        Returns:
+            True si la campagne a été lancée avec succès
+        """
+        try:
+            # Récupérer la campagne
+            campaign = await self._get_campaign_with_persona(campaign_id)
+            if not campaign:
+                return False
+            
+            # Vérifier que la campagne a une URL cible
+            if not campaign.target_url:
+                raise ValueError("La campagne doit avoir une URL cible pour la navigation réelle")
+            
+            # Vérifier le statut de la campagne
+            if campaign.status == CampaignStatus.RUNNING:
+                return True
+            
+            if campaign.status != CampaignStatus.PENDING:
+                return False
+            
+            # Mettre à jour le statut de la campagne
+            campaign.status = CampaignStatus.RUNNING
+            campaign.started_at = datetime.utcnow()
+            
+            if self.db_session:
+                await self.db_session.commit()
+            else:
+                async with get_db_session() as session:
+                    await session.execute(
+                        update(Campaign)
+                        .where(Campaign.id == campaign_id)
+                        .values(
+                            status=CampaignStatus.RUNNING,
+                            started_at=datetime.utcnow()
+                        )
+                    )
+                    await session.commit()
+            
+            # Créer un job de campagne pour la navigation réelle
+            campaign_job = {
+                'type': 'campaign_navigation',
+                'campaign_id': str(campaign_id),
+                'target_url': campaign.target_url,
+                'concurrent_sessions': campaign.concurrent_sessions,
+                'duration_minutes': 60,  # Durée par défaut de 60 minutes
+                'persona_ids': [str(campaign.persona_id)],
+                'created_at': datetime.utcnow().isoformat()
+            }
+            
+            # Envoyer le job à la queue
+            await self._send_campaign_job_to_queue(campaign_job)
+            
+            self.logger.info(f"Campagne {campaign_id} lancée avec navigation réelle vers {campaign.target_url}")
+            return True
+            
+        except Exception as e:
+            self.logger.error(f"Erreur lors du lancement de la campagne {campaign_id}: {e}")
+            return False
+    
+    async def _send_campaign_job_to_queue(self, job: Dict[str, Any]) -> None:
+        """Envoie un job de campagne à la queue Redis"""
+        payload = {
+            'type': 'campaign_navigation',
+            'id': job.get('campaign_id'),
+            **job,
+        }
+        await self.redis_client.enqueue_task(payload)

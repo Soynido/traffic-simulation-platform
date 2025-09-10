@@ -77,6 +77,10 @@ test-performance: ## Tests de performance
 	@echo "$(GREEN)🧪 Tests de performance...$(NC)"
 	@./scripts/performance-test.sh
 
+test-real-navigation: ## Test de la navigation réelle
+	@echo "$(GREEN)🧪 Test de la navigation réelle...$(NC)"
+	@./scripts/test-real-navigation.sh
+
 # ===== LINTING ET FORMATAGE =====
 lint: ## Lancer le linting sur tous les projets
 	@echo "$(GREEN)🔍 Linting...$(NC)"

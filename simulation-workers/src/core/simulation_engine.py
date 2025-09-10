@@ -14,11 +14,15 @@ import json
 from playwright.async_api import async_playwright, Browser, BrowserContext, Page
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..models import Persona, Campaign, Session, PageVisit, Action
-from ..services import SessionService, AnalyticsService
-from ..utils.behavior_patterns import BehaviorPatterns
-from ..utils.user_agents import UserAgentRotator
-from ..utils.rhythm_calculator import RhythmCalculator
+# Import des types locaux
+from local_types import Persona, Campaign, Session, PageVisit, Action
+
+# Import des services locaux
+from services.session_service import SessionService
+from services.analytics_service import AnalyticsService
+from utils.behavior_patterns import BehaviorPatterns
+from utils.user_agents import UserAgentRotator
+from utils.rhythm_calculator import RhythmCalculator
 
 
 class SimulationStatus(Enum):

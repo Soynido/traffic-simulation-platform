@@ -361,3 +361,40 @@ async def get_campaign_status(
         )
     
     return CampaignStatusResponse(**status_info)
+
+
+@router.post("/{campaign_id}/start-real-navigation", response_model=CampaignResponse)
+async def start_campaign_real_navigation(
+    campaign_id: UUID,
+    db: AsyncSession = Depends(get_db_session)
+):
+    """Start campaign with real navigation to target URL."""
+    orchestrator = SimulationOrchestrator(db)
+    
+    # Vérifier que la campagne existe
+    campaign_service = CampaignService(db)
+    campaign = await campaign_service.get_campaign_by_id(campaign_id)
+    if not campaign:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Campaign not found"
+        )
+    
+    # Vérifier que la campagne a une URL cible
+    if not campaign.target_url:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Campaign must have a target URL for real navigation"
+        )
+    
+    # Lancer la campagne avec navigation réelle
+    success = await orchestrator.start_campaign_with_real_navigation(campaign_id)
+    if not success:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to start campaign with real navigation"
+        )
+    
+    # Récupérer la campagne mise à jour
+    updated_campaign = await campaign_service.get_campaign_by_id(campaign_id)
+    return CampaignResponse.from_orm(updated_campaign)

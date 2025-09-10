@@ -19,6 +19,7 @@ import os
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
 from core.simulation_engine import SimulationEngine, SimulationConfig
+from core.navigation_engine import NavigationEngine
 from services.session_service import SessionService
 from services.campaign_service import CampaignService
 from services.persona_service import PersonaService
@@ -43,6 +44,7 @@ class SimulationWorker:
         self.session_factory = None
         self.redis_client = None
         self.simulation_engine = None
+        self.navigation_engine = None
         
         # État du worker
         self.running = False
@@ -84,6 +86,8 @@ class SimulationWorker:
             await self.redis_client.connect()
             
             # Initialiser le moteur de simulation
+            self.navigation_engine = NavigationEngine()
+            
             async with self.session_factory() as session:
                 self.simulation_engine = SimulationEngine(session)
             
@@ -160,13 +164,19 @@ class SimulationWorker:
             
             for task_data in tasks:
                 task_id = task_data.get('id')
+                task_type = task_data.get('type', 'simulation')
                 
                 if task_id and task_id not in self.current_tasks:
-                    # Créer une tâche asynchrone pour cette simulation
-                    task = asyncio.create_task(self._execute_simulation_task(task_data))
-                    self.current_tasks[task_id] = task
-                    
-                    self.logger.info(f"Tâche {task_id} démarrée")
+                    if task_type == 'campaign_navigation':
+                        # Créer une tâche asynchrone pour la navigation de campagne
+                        task = asyncio.create_task(self._execute_campaign_navigation_task(task_data))
+                        self.current_tasks[task_id] = task
+                        self.logger.info(f"Tâche de navigation de campagne {task_id} démarrée")
+                    else:
+                        # Créer une tâche asynchrone pour cette simulation
+                        task = asyncio.create_task(self._execute_simulation_task(task_data))
+                        self.current_tasks[task_id] = task
+                        self.logger.info(f"Tâche de simulation {task_id} démarrée")
             
         except Exception as e:
             self.logger.error(f"Erreur lors du traitement des tâches: {e}")
@@ -182,32 +192,21 @@ class SimulationWorker:
             
             # Créer une session de base de données
             async with self.session_factory() as session:
-                # Récupérer les données de la campagne et de la persona
-                campaign_service = CampaignService(session)
-                persona_service = PersonaService(session)
-                
-                campaign = await campaign_service.get_campaign(campaign_id)
-                persona = await persona_service.get_persona(persona_id)
-                
-                if not campaign or not persona:
-                    self.logger.error(f"Campagne {campaign_id} ou persona {persona_id} non trouvée")
-                    return
-                
-                # Créer la configuration de simulation
+                # Construire la configuration depuis la tâche (enrichie par l'orchestrateur)
                 config = SimulationConfig(
                     campaign_id=campaign_id,
                     persona_id=persona_id,
-                    target_url=campaign.target_url,
-                    max_pages=random.randint(persona.pages_min, persona.pages_max),
-                    max_actions_per_page=random.randint(persona.actions_per_page_min, persona.actions_per_page_max),
-                    session_duration_min=persona.session_duration_min,
-                    session_duration_max=persona.session_duration_max,
-                    scroll_probability=persona.scroll_probability,
-                    click_probability=persona.click_probability,
-                    typing_probability=persona.typing_probability,
-                    rate_limit_delay_ms=campaign.rate_limit_delay_ms,
-                    user_agent_rotation=campaign.user_agent_rotation,
-                    respect_robots_txt=campaign.respect_robots_txt
+                    target_url=task_data.get('target_url') or task_data.get('start_url'),
+                    max_pages=int(task_data.get('max_pages', 3)),
+                    max_actions_per_page=int(task_data.get('max_actions_per_page', 10)),
+                    session_duration_min=int(task_data.get('session_duration_min', 60)),
+                    session_duration_max=int(task_data.get('session_duration_max', 120)),
+                    scroll_probability=float(task_data.get('scroll_probability', 0.8)),
+                    click_probability=float(task_data.get('click_probability', 0.6)),
+                    typing_probability=float(task_data.get('typing_probability', 0.1)),
+                    rate_limit_delay_ms=int(task_data.get('rate_limit_delay_ms', 1000)),
+                    user_agent_rotation=bool(task_data.get('user_agent_rotation', True)),
+                    respect_robots_txt=bool(task_data.get('respect_robots_txt', True)),
                 )
                 
                 # Créer le moteur de simulation
@@ -247,6 +246,137 @@ class SimulationWorker:
                 })
             except Exception as update_error:
                 self.logger.error(f"Erreur lors de la mise à jour du statut de la tâche {task_id}: {update_error}")
+    
+    async def _execute_campaign_navigation_task(self, task_data: Dict[str, Any]):
+        """Exécute une tâche de navigation de campagne."""
+        task_id = task_data.get('id')
+        campaign_id = task_data.get('campaign_id')
+        
+        try:
+            self.logger.info(f"Exécution de la tâche de navigation de campagne {task_id} pour la campagne {campaign_id}")
+            
+            # Traiter la campagne avec navigation réelle
+            result = await self.process_campaign_job(campaign_id)
+            
+            # Mettre à jour le statut de la tâche
+            await self.redis_client.update_task_status(task_id, 'completed', {
+                'campaign_id': campaign_id,
+                'result': result
+            })
+            
+            self.logger.info(f"Tâche de navigation de campagne {task_id} terminée avec succès")
+            
+        except Exception as e:
+            self.logger.error(f"Erreur lors de l'exécution de la tâche de navigation de campagne {task_id}: {e}")
+            
+            # Mettre à jour le statut de la tâche en cas d'erreur
+            try:
+                await self.redis_client.update_task_status(task_id, 'failed', {
+                    'campaign_id': campaign_id,
+                    'error': str(e)
+                })
+            except Exception as update_error:
+                self.logger.error(f"Erreur lors de la mise à jour du statut de la tâche {task_id}: {update_error}")
+    
+    async def process_campaign_job(self, campaign_id: str) -> Dict[str, Any]:
+        """
+        Traite un job de campagne avec navigation réelle
+        
+        Args:
+            campaign_id: ID de la campagne à traiter
+            
+        Returns:
+            Résultats de la campagne
+        """
+        try:
+            self.logger.info(f"Traitement de la campagne {campaign_id}")
+            
+            # Récupérer la campagne depuis la base de données
+            async with self.session_factory() as session:
+                campaign_service = CampaignService(session)
+                campaign = await campaign_service.get_campaign_by_id(campaign_id)
+                
+                if not campaign:
+                    raise Exception(f"Campagne {campaign_id} non trouvée")
+                
+                # Récupérer les personas de la campagne
+                persona_service = PersonaService(session)
+                personas = []
+                for persona_id in campaign.personaIds:
+                    persona = await persona_service.get_persona_by_id(persona_id)
+                    if persona:
+                        personas.append(persona)
+                
+                if not personas:
+                    raise Exception(f"Aucun persona trouvé pour la campagne {campaign_id}")
+                
+                # Calculer le nombre de sessions et la durée
+                sessions_count = campaign.simulationConfig.concurrentSessions
+                duration_seconds = campaign.simulationConfig.duration * 60  # Convertir en secondes
+                
+                # Exécuter la campagne avec navigation réelle
+                results = await self.navigation_engine.run_campaign(
+                    campaign=campaign,
+                    personas=personas,
+                    sessions_count=sessions_count,
+                    duration_seconds=duration_seconds
+                )
+                
+                # Calculer les métriques
+                successful_sessions = [r for r in results if r.get("success", False)]
+                failed_sessions = [r for r in results if not r.get("success", False)]
+                
+                total_duration = sum(r.get("duration", 0) for r in successful_sessions)
+                average_duration = total_duration / len(successful_sessions) if successful_sessions else 0
+                
+                total_page_views = sum(r.get("page_views", 0) for r in successful_sessions)
+                total_actions = sum(r.get("actions", 0) for r in successful_sessions)
+                
+                # Mettre à jour les métriques de la campagne
+                campaign_metrics = {
+                    "totalSessions": len(results),
+                    "completedSessions": len(successful_sessions),
+                    "failedSessions": len(failed_sessions),
+                    "averageSessionDuration": average_duration,
+                    "totalPageViews": total_page_views,
+                    "uniquePageViews": total_page_views,  # Approximation
+                    "bounceRate": 0.0,  # À calculer plus précisément
+                    "conversionRate": 0.0,  # À calculer plus précisément
+                }
+                
+                # Mettre à jour la campagne
+                await campaign_service.update_campaign(campaign_id, {
+                    "metrics": campaign_metrics,
+                    "status": "completed"
+                })
+                
+                self.logger.info(f"Campagne {campaign_id} terminée: {len(successful_sessions)}/{len(results)} sessions réussies")
+                
+                return {
+                    "campaign_id": campaign_id,
+                    "status": "completed",
+                    "metrics": campaign_metrics,
+                    "results": results
+                }
+                
+        except Exception as e:
+            self.logger.error(f"Erreur lors du traitement de la campagne {campaign_id}: {e}")
+            
+            # Mettre à jour le statut de la campagne en cas d'erreur
+            try:
+                async with self.session_factory() as session:
+                    campaign_service = CampaignService(session)
+                    await campaign_service.update_campaign(campaign_id, {
+                        "status": "error"
+                    })
+            except Exception as update_error:
+                self.logger.error(f"Erreur lors de la mise à jour du statut de la campagne {campaign_id}: {update_error}")
+            
+            return {
+                "campaign_id": campaign_id,
+                "status": "error",
+                "error": str(e)
+            }
     
     async def _cleanup_completed_tasks(self):
         """Nettoie les tâches terminées."""
