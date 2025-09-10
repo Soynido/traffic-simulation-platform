@@ -1,0 +1,105 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15-alpine
+    container_name: traffic-postgres
+    environment:
+      POSTGRES_DB: traffic_db
+      POSTGRES_USER: traffic_user
+      POSTGRES_PASSWORD: traffic_pass
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5434:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U traffic_user -d traffic_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # Redis Cache & Queue
+  redis:
+    image: redis:7-alpine
+    container_name: traffic-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  # Backend API
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: traffic-backend
+    ports:
+      - "8000:8000"
+    environment:
+      - DATABASE_URL=postgresql://traffic_user:traffic_pass@postgres:5432/traffic_db
+      - REDIS_URL=redis://redis:6379
+      - API_HOST=0.0.0.0
+      - API_PORT=8000
+      - API_DEBUG=true
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./backend:/app
+    command: uvicorn src.main:app --host 0.0.0.0 --port 8000 --reload
+
+  # Frontend Dashboard
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: traffic-frontend
+    ports:
+      - "3001:3000"
+    environment:
+      - NEXT_PUBLIC_API_URL=http://localhost:8000/api/v1
+      - NEXTAUTH_URL=http://localhost:3001
+      - NEXTAUTH_SECRET=dev-secret-change-in-production
+    depends_on:
+      - backend
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    command: npm run dev
+
+  # Simulation Workers
+  simulation-worker:
+    build:
+      context: ./simulation-workers
+      dockerfile: Dockerfile
+    container_name: traffic-worker-1
+    environment:
+      - DATABASE_URL=postgresql://traffic_user:traffic_pass@postgres:5432/traffic_db
+      - REDIS_URL=redis://redis:6379
+      - WORKER_ID=worker-1
+      - BROWSER_HEADLESS=true
+      - MAX_CONCURRENT_SESSIONS=10
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./simulation-workers:/app
+    command: python -m workers.simulation_worker
+
+volumes:
+  postgres_data:
+  redis_data:
+
+networks:
+  default:
+    name: traffic-network

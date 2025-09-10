@@ -1,0 +1,898 @@
+openapi: 3.0.3
+info:
+  title: Traffic Simulation Platform API
+  description: API for managing web traffic simulation campaigns and analyzing results
+  version: 1.0.0
+  contact:
+    name: Traffic Simulation Platform
+    email: support@traffic-sim.dev
+
+servers:
+  - url: http://localhost:8000/api/v1
+    description: Development server
+  - url: https://api.traffic-sim.dev/v1
+    description: Production server
+
+paths:
+  # Persona Management
+  /personas:
+    get:
+      summary: List all personas
+      tags: [Personas]
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 50
+            maximum: 100
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            default: 0
+      responses:
+        '200':
+          description: List of personas
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  personas:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Persona'
+                  total:
+                    type: integer
+                  limit:
+                    type: integer
+                  offset:
+                    type: integer
+    post:
+      summary: Create new persona
+      tags: [Personas]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PersonaCreate'
+      responses:
+        '201':
+          description: Persona created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Persona'
+        '400':
+          description: Invalid persona data
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /personas/{id}:
+    get:
+      summary: Get persona by ID
+      tags: [Personas]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Persona details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Persona'
+        '404':
+          description: Persona not found
+    put:
+      summary: Update persona
+      tags: [Personas]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PersonaUpdate'
+      responses:
+        '200':
+          description: Persona updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Persona'
+        '404':
+          description: Persona not found
+    delete:
+      summary: Delete persona
+      tags: [Personas]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '204':
+          description: Persona deleted
+        '404':
+          description: Persona not found
+
+  # Campaign Management
+  /campaigns:
+    get:
+      summary: List campaigns
+      tags: [Campaigns]
+      parameters:
+        - name: status
+          in: query
+          schema:
+            $ref: '#/components/schemas/CampaignStatus'
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 50
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            default: 0
+      responses:
+        '200':
+          description: List of campaigns
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  campaigns:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Campaign'
+                  total:
+                    type: integer
+    post:
+      summary: Create new campaign
+      tags: [Campaigns]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CampaignCreate'
+      responses:
+        '201':
+          description: Campaign created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Campaign'
+
+  /campaigns/{id}:
+    get:
+      summary: Get campaign details
+      tags: [Campaigns]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Campaign details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Campaign'
+
+  /campaigns/{id}/start:
+    post:
+      summary: Start campaign
+      tags: [Campaigns]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Campaign started
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Campaign'
+
+  /campaigns/{id}/pause:
+    post:
+      summary: Pause campaign
+      tags: [Campaigns]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Campaign paused
+
+  /campaigns/{id}/sessions:
+    get:
+      summary: Get campaign sessions
+      tags: [Campaigns]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: status
+          in: query
+          schema:
+            $ref: '#/components/schemas/SessionStatus'
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 100
+      responses:
+        '200':
+          description: Campaign sessions
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  sessions:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Session'
+
+  # Session Details
+  /sessions/{id}:
+    get:
+      summary: Get session details
+      tags: [Sessions]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Session details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SessionDetail'
+
+  /sessions/{id}/page-visits:
+    get:
+      summary: Get session page visits
+      tags: [Sessions]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Session page visits
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/PageVisit'
+
+  # Analytics
+  /analytics/campaigns/{id}:
+    get:
+      summary: Get campaign analytics
+      tags: [Analytics]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Campaign analytics
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CampaignAnalytics'
+
+  /analytics/compare:
+    post:
+      summary: Compare simulation data with human baseline
+      tags: [Analytics]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                campaign_ids:
+                  type: array
+                  items:
+                    type: string
+                    format: uuid
+                human_baseline_file:
+                  type: string
+                  description: Path to uploaded human baseline data
+                comparison_metrics:
+                  type: array
+                  items:
+                    type: string
+                    enum: [timing, navigation, actions, patterns]
+      responses:
+        '200':
+          description: Comparison analysis
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ComparisonAnalysis'
+
+  # Real-time updates via WebSocket
+  /ws/campaigns/{id}:
+    get:
+      summary: WebSocket endpoint for real-time campaign updates
+      tags: [WebSocket]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '101':
+          description: WebSocket connection established
+
+components:
+  schemas:
+    Persona:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+          maxLength: 100
+        description:
+          type: string
+        session_duration_min:
+          type: integer
+          minimum: 1
+        session_duration_max:
+          type: integer
+          minimum: 1
+        pages_min:
+          type: integer
+          minimum: 1
+        pages_max:
+          type: integer
+          minimum: 1
+        actions_per_page_min:
+          type: integer
+          minimum: 1
+        actions_per_page_max:
+          type: integer
+          minimum: 1
+        scroll_probability:
+          type: number
+          minimum: 0
+          maximum: 1
+        click_probability:
+          type: number
+          minimum: 0
+          maximum: 1
+        typing_probability:
+          type: number
+          minimum: 0
+          maximum: 1
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    PersonaCreate:
+      type: object
+      required: [name, session_duration_min, session_duration_max, pages_min, pages_max]
+      properties:
+        name:
+          type: string
+          maxLength: 100
+        description:
+          type: string
+        session_duration_min:
+          type: integer
+          minimum: 1
+        session_duration_max:
+          type: integer
+          minimum: 1
+        pages_min:
+          type: integer
+          minimum: 1
+        pages_max:
+          type: integer
+          minimum: 1
+        actions_per_page_min:
+          type: integer
+          minimum: 1
+          default: 1
+        actions_per_page_max:
+          type: integer
+          minimum: 1
+          default: 10
+        scroll_probability:
+          type: number
+          minimum: 0
+          maximum: 1
+          default: 0.8
+        click_probability:
+          type: number
+          minimum: 0
+          maximum: 1
+          default: 0.6
+        typing_probability:
+          type: number
+          minimum: 0
+          maximum: 1
+          default: 0.1
+
+    PersonaUpdate:
+      type: object
+      properties:
+        name:
+          type: string
+          maxLength: 100
+        description:
+          type: string
+        session_duration_min:
+          type: integer
+          minimum: 1
+        session_duration_max:
+          type: integer
+          minimum: 1
+        pages_min:
+          type: integer
+          minimum: 1
+        pages_max:
+          type: integer
+          minimum: 1
+        actions_per_page_min:
+          type: integer
+          minimum: 1
+        actions_per_page_max:
+          type: integer
+          minimum: 1
+        scroll_probability:
+          type: number
+          minimum: 0
+          maximum: 1
+        click_probability:
+          type: number
+          minimum: 0
+          maximum: 1
+        typing_probability:
+          type: number
+          minimum: 0
+          maximum: 1
+
+    Campaign:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+          maxLength: 200
+        description:
+          type: string
+        target_url:
+          type: string
+          format: uri
+          maxLength: 500
+        total_sessions:
+          type: integer
+          minimum: 1
+        concurrent_sessions:
+          type: integer
+          minimum: 1
+        status:
+          $ref: '#/components/schemas/CampaignStatus'
+        persona_id:
+          type: string
+          format: uuid
+        rate_limit_delay_ms:
+          type: integer
+          minimum: 100
+        user_agent_rotation:
+          type: boolean
+        respect_robots_txt:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+        started_at:
+          type: string
+          format: date-time
+          nullable: true
+        completed_at:
+          type: string
+          format: date-time
+          nullable: true
+
+    CampaignCreate:
+      type: object
+      required: [name, target_url, total_sessions, persona_id]
+      properties:
+        name:
+          type: string
+          maxLength: 200
+        description:
+          type: string
+        target_url:
+          type: string
+          format: uri
+          maxLength: 500
+        total_sessions:
+          type: integer
+          minimum: 1
+        concurrent_sessions:
+          type: integer
+          minimum: 1
+          default: 10
+        persona_id:
+          type: string
+          format: uuid
+        rate_limit_delay_ms:
+          type: integer
+          minimum: 100
+          default: 1000
+        user_agent_rotation:
+          type: boolean
+          default: true
+        respect_robots_txt:
+          type: boolean
+          default: true
+
+    Session:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        campaign_id:
+          type: string
+          format: uuid
+        persona_id:
+          type: string
+          format: uuid
+        status:
+          $ref: '#/components/schemas/SessionStatus'
+        start_url:
+          type: string
+          format: uri
+        user_agent:
+          type: string
+        viewport_width:
+          type: integer
+        viewport_height:
+          type: integer
+        session_duration_ms:
+          type: integer
+          nullable: true
+        pages_visited:
+          type: integer
+        total_actions:
+          type: integer
+        error_message:
+          type: string
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+        started_at:
+          type: string
+          format: date-time
+          nullable: true
+        completed_at:
+          type: string
+          format: date-time
+          nullable: true
+
+    SessionDetail:
+      allOf:
+        - $ref: '#/components/schemas/Session'
+        - type: object
+          properties:
+            page_visits:
+              type: array
+              items:
+                $ref: '#/components/schemas/PageVisit'
+            analytics:
+              $ref: '#/components/schemas/SessionAnalytics'
+
+    PageVisit:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        session_id:
+          type: string
+          format: uuid
+        url:
+          type: string
+          format: uri
+        title:
+          type: string
+          nullable: true
+        visit_order:
+          type: integer
+          minimum: 1
+        arrived_at:
+          type: string
+          format: date-time
+        left_at:
+          type: string
+          format: date-time
+          nullable: true
+        dwell_time_ms:
+          type: integer
+          nullable: true
+        actions_count:
+          type: integer
+        scroll_depth_percent:
+          type: integer
+          minimum: 0
+          maximum: 100
+        actions:
+          type: array
+          items:
+            $ref: '#/components/schemas/Action'
+
+    Action:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        page_visit_id:
+          type: string
+          format: uuid
+        action_type:
+          $ref: '#/components/schemas/ActionType'
+        element_selector:
+          type: string
+          nullable: true
+        element_text:
+          type: string
+          nullable: true
+        coordinates_x:
+          type: integer
+          nullable: true
+        coordinates_y:
+          type: integer
+          nullable: true
+        input_value:
+          type: string
+          nullable: true
+        timestamp:
+          type: string
+          format: date-time
+        action_order:
+          type: integer
+          minimum: 1
+        duration_ms:
+          type: integer
+
+    SessionAnalytics:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        session_id:
+          type: string
+          format: uuid
+        total_duration_ms:
+          type: integer
+        avg_page_dwell_time_ms:
+          type: number
+        median_page_dwell_time_ms:
+          type: integer
+        pages_visited:
+          type: integer
+        navigation_depth:
+          type: integer
+        bounce_rate:
+          type: number
+          minimum: 0
+          maximum: 1
+        total_actions:
+          type: integer
+        actions_per_page:
+          type: number
+        click_through_rate:
+          type: number
+        scroll_engagement:
+          type: number
+        action_variance:
+          type: number
+        rhythm_score:
+          type: number
+          minimum: 0
+          maximum: 1
+        pause_distribution:
+          type: object
+          additionalProperties: true
+
+    CampaignAnalytics:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        campaign_id:
+          type: string
+          format: uuid
+        total_sessions:
+          type: integer
+        completed_sessions:
+          type: integer
+        failed_sessions:
+          type: integer
+        success_rate:
+          type: number
+          minimum: 0
+          maximum: 1
+        avg_session_duration_ms:
+          type: number
+        avg_pages_per_session:
+          type: number
+        avg_actions_per_session:
+          type: number
+        avg_rhythm_score:
+          type: number
+        behavioral_variance:
+          type: number
+        detection_risk_score:
+          type: number
+          minimum: 0
+          maximum: 1
+        total_runtime_ms:
+          type: integer
+        avg_cpu_usage:
+          type: number
+        peak_memory_mb:
+          type: integer
+
+    ComparisonAnalysis:
+      type: object
+      properties:
+        comparison_id:
+          type: string
+          format: uuid
+        campaign_ids:
+          type: array
+          items:
+            type: string
+            format: uuid
+        human_baseline_stats:
+          type: object
+          properties:
+            total_sessions:
+              type: integer
+            avg_session_duration_ms:
+              type: number
+            avg_pages_per_session:
+              type: number
+            avg_actions_per_session:
+              type: number
+        simulation_stats:
+          type: object
+          properties:
+            total_sessions:
+              type: integer
+            avg_session_duration_ms:
+              type: number
+            avg_pages_per_session:
+              type: number
+            avg_actions_per_session:
+              type: number
+        discriminant_signals:
+          type: array
+          items:
+            type: object
+            properties:
+              signal_name:
+                type: string
+              human_value:
+                type: number
+              simulation_value:
+                type: number
+              difference_score:
+                type: number
+              detection_confidence:
+                type: number
+                minimum: 0
+                maximum: 1
+        recommendations:
+          type: array
+          items:
+            type: string
+
+    CampaignStatus:
+      type: string
+      enum: [pending, running, paused, completed, failed]
+
+    SessionStatus:
+      type: string
+      enum: [pending, running, completed, failed, timeout]
+
+    ActionType:
+      type: string
+      enum: [
+        click, double_click, right_click,
+        scroll, scroll_to_element,
+        type, clear, select,
+        hover, drag_and_drop,
+        key_press, page_load, page_unload
+      ]
+
+    Error:
+      type: object
+      properties:
+        error:
+          type: string
+        message:
+          type: string
+        details:
+          type: object
+          additionalProperties: true
+
+  securitySchemes:
+    apiKey:
+      type: apiKey
+      in: header
+      name: X-API-Key
+
+security:
+  - apiKey: []

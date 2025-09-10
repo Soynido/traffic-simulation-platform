@@ -1,0 +1,65 @@
+# Configuration de développement pour Docker Compose
+# Ce fichier est automatiquement chargé par docker-compose
+
+version: '3.8'
+
+services:
+  postgres:
+    environment:
+      POSTGRES_DB: traffic_db
+      POSTGRES_USER: traffic_user
+      POSTGRES_PASSWORD: traffic_pass
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./scripts/init-db.sql:/docker-entrypoint-initdb.d/init-db.sql
+
+  redis:
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+
+  backend:
+    environment:
+      DATABASE_URL: postgresql+asyncpg://traffic_user:traffic_pass@postgres:5432/traffic_db
+      REDIS_URL: redis://redis:6379
+      CORS_ORIGINS: http://localhost:3000,http://127.0.0.1:3000
+      ALLOWED_HOSTS: localhost,127.0.0.1,0.0.0.0
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./backend:/app
+      - ./logs:/app/logs
+    depends_on:
+      - postgres
+      - redis
+
+  frontend:
+    environment:
+      NEXT_PUBLIC_API_URL: http://localhost:8000
+    ports:
+      - "3001:3000"
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    depends_on:
+      - backend
+
+  simulation-worker:
+    environment:
+      DATABASE_URL: postgresql+asyncpg://traffic_user:traffic_pass@postgres:5432/traffic_db
+      REDIS_URL: redis://redis:6379
+      SIMULATION_WORKER_COUNT: 3
+      SIMULATION_MAX_CONCURRENT_SESSIONS: 10
+    volumes:
+      - ./simulation-workers:/app
+    depends_on:
+      - postgres
+      - redis
+      - backend
+
+volumes:
+  postgres_data:
+  redis_data:

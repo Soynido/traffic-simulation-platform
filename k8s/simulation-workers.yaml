@@ -1,0 +1,58 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: simulation-workers-config
+  namespace: traffic-simulation
+data:
+  DATABASE_URL: postgresql+asyncpg://traffic_user:traffic_pass@postgres:5432/traffic_db
+  REDIS_URL: redis://redis:6379
+  SIMULATION_WORKER_COUNT: "3"
+  SIMULATION_MAX_CONCURRENT_SESSIONS: "10"
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: simulation-workers
+  namespace: traffic-simulation
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: simulation-workers
+  template:
+    metadata:
+      labels:
+        app: simulation-workers
+    spec:
+      containers:
+      - name: simulation-workers
+        image: traffic-simulation-workers:latest
+        env:
+        - name: DATABASE_URL
+          valueFrom:
+            configMapKeyRef:
+              name: simulation-workers-config
+              key: DATABASE_URL
+        - name: REDIS_URL
+          valueFrom:
+            configMapKeyRef:
+              name: simulation-workers-config
+              key: REDIS_URL
+        - name: SIMULATION_WORKER_COUNT
+          valueFrom:
+            configMapKeyRef:
+              name: simulation-workers-config
+              key: SIMULATION_WORKER_COUNT
+        - name: SIMULATION_MAX_CONCURRENT_SESSIONS
+          valueFrom:
+            configMapKeyRef:
+              name: simulation-workers-config
+              key: SIMULATION_MAX_CONCURRENT_SESSIONS
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "500m"
+          limits:
+            memory: "1Gi"
+            cpu: "1000m"

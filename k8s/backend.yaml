@@ -1,0 +1,107 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: backend-config
+  namespace: traffic-simulation
+data:
+  DATABASE_URL: postgresql+asyncpg://traffic_user:traffic_pass@postgres:5432/traffic_db
+  REDIS_URL: redis://redis:6379
+  CORS_ORIGINS: "*"
+  ALLOWED_HOSTS: "*"
+  LOG_LEVEL: INFO
+
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: backend-secret
+  namespace: traffic-simulation
+type: Opaque
+data:
+  SECRET_KEY: eW91cl9zZWNyZXRfa2V5X2hlcmU=  # your_secret_key_here en base64
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: backend
+  namespace: traffic-simulation
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: backend
+  template:
+    metadata:
+      labels:
+        app: backend
+    spec:
+      containers:
+      - name: backend
+        image: traffic-backend:latest
+        ports:
+        - containerPort: 8000
+        env:
+        - name: DATABASE_URL
+          valueFrom:
+            configMapKeyRef:
+              name: backend-config
+              key: DATABASE_URL
+        - name: REDIS_URL
+          valueFrom:
+            configMapKeyRef:
+              name: backend-config
+              key: REDIS_URL
+        - name: CORS_ORIGINS
+          valueFrom:
+            configMapKeyRef:
+              name: backend-config
+              key: CORS_ORIGINS
+        - name: ALLOWED_HOSTS
+          valueFrom:
+            configMapKeyRef:
+              name: backend-config
+              key: ALLOWED_HOSTS
+        - name: LOG_LEVEL
+          valueFrom:
+            configMapKeyRef:
+              name: backend-config
+              key: LOG_LEVEL
+        - name: SECRET_KEY
+          valueFrom:
+            secretKeyRef:
+              name: backend-secret
+              key: SECRET_KEY
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          initialDelaySeconds: 5
+          periodSeconds: 5
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "250m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: backend
+  namespace: traffic-simulation
+spec:
+  selector:
+    app: backend
+  ports:
+  - port: 8000
+    targetPort: 8000
+  type: ClusterIP
