@@ -8,6 +8,7 @@ requests==2.31.0
 
 # Database & ORM
 asyncpg==0.29.0
+psycopg2-binary==2.9.9
 sqlalchemy==2.0.23
 
 # Job Queue & Redis

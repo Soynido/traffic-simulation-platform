@@ -41,15 +41,21 @@ class SimulationOrchestrator:
             return False
         
         # If campaign is already running, consider it started successfully
-        if campaign.status == CampaignStatus.RUNNING:
+        if campaign.status == 'running':
+            self.logger.info(f"✅ Campagne {campaign_id} déjà en cours d'exécution")
+            # Create sessions for the campaign even if already running
+            await self._create_campaign_sessions(campaign)
+            # Start processing sessions
+            await self._process_campaign_sessions(campaign_id)
             return True
         
         # Only start if campaign is pending
-        if campaign.status != CampaignStatus.PENDING:
+        if campaign.status != 'pending':
+            self.logger.warning(f"⚠️ Impossible de démarrer la simulation pour la campagne {campaign_id} en statut {campaign.status}")
             return False
         
         # Update campaign status
-        campaign.status = CampaignStatus.RUNNING
+        campaign.status = 'running'
         campaign.started_at = datetime.utcnow()
         
         if self.db_session:
@@ -70,11 +76,11 @@ class SimulationOrchestrator:
     async def pause_campaign_simulation(self, campaign_id: UUID) -> bool:
         """Pause simulation for a campaign."""
         campaign = await self._get_campaign(campaign_id)
-        if not campaign or campaign.status != CampaignStatus.RUNNING:
+        if not campaign or campaign.status != 'running':
             return False
         
         # Update campaign status
-        campaign.status = CampaignStatus.PAUSED
+        campaign.status = 'paused'
         
         if self.db_session:
             await self.db_session.commit()
@@ -91,11 +97,11 @@ class SimulationOrchestrator:
     async def resume_campaign_simulation(self, campaign_id: UUID) -> bool:
         """Resume simulation for a campaign."""
         campaign = await self._get_campaign(campaign_id)
-        if not campaign or campaign.status != CampaignStatus.PAUSED:
+        if not campaign or campaign.status != 'paused':
             return False
         
         # Update campaign status
-        campaign.status = CampaignStatus.RUNNING
+        campaign.status = 'running'
         
         if self.db_session:
             await self.db_session.commit()
@@ -112,11 +118,11 @@ class SimulationOrchestrator:
     async def stop_campaign_simulation(self, campaign_id: UUID) -> bool:
         """Stop simulation for a campaign."""
         campaign = await self._get_campaign(campaign_id)
-        if not campaign:
+        if not campaign or campaign.status not in ['running', 'paused']:
             return False
         
         # Update campaign status
-        campaign.status = CampaignStatus.COMPLETED
+        campaign.status = 'completed'
         campaign.completed_at = datetime.utcnow()
         
         if self.db_session:
@@ -125,9 +131,6 @@ class SimulationOrchestrator:
             async with get_db_session() as session:
                 session.add(campaign)
                 await session.commit()
-        
-        # Remove campaign sessions from queue
-        self.job_queue = [job for job in self.job_queue if job.get('campaign_id') != campaign_id]
         
         return True
     
@@ -481,7 +484,9 @@ class SimulationOrchestrator:
             'id': job.get('id') or str(UUID(job['session_id'])),
             **job,
         }
+        self.logger.info(f"📤 Envoi du job vers Redis: {payload.get('id')} - {payload.get('type')}")
         await self.redis_client.enqueue_task(payload)
+        self.logger.info(f"✅ Job envoyé vers Redis: {payload.get('id')}")
     
     def _generate_user_agent(self, rotation_enabled: bool) -> str:
         """Generate user agent string."""
@@ -520,14 +525,14 @@ class SimulationOrchestrator:
                 raise ValueError("La campagne doit avoir une URL cible pour la navigation réelle")
             
             # Vérifier le statut de la campagne
-            if campaign.status == CampaignStatus.RUNNING:
+            if campaign.status == 'running':
                 return True
             
-            if campaign.status != CampaignStatus.PENDING:
+            if campaign.status != 'pending':
                 return False
             
             # Mettre à jour le statut de la campagne
-            campaign.status = CampaignStatus.RUNNING
+            campaign.status = 'running'
             campaign.started_at = datetime.utcnow()
             
             if self.db_session:
@@ -538,7 +543,7 @@ class SimulationOrchestrator:
                         update(Campaign)
                         .where(Campaign.id == campaign_id)
                         .values(
-                            status=CampaignStatus.RUNNING,
+                            status='running',
                             started_at=datetime.utcnow()
                         )
                     )

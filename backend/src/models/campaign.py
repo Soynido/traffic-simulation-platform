@@ -118,22 +118,22 @@ class Campaign(Base):
     
     def can_start(self) -> bool:
         """Check if campaign can be started."""
-        return self.status == CampaignStatus.PENDING
+        return self.status == 'pending'
     
     def can_pause(self) -> bool:
         """Check if campaign can be paused."""
-        return self.status == CampaignStatus.RUNNING
+        return self.status == 'running'
     
     def can_resume(self) -> bool:
         """Check if campaign can be resumed."""
-        return self.status == CampaignStatus.PAUSED
+        return self.status == 'paused'
     
     def start(self) -> None:
         """Start the campaign."""
         if not self.can_start():
             raise ValueError(f"Cannot start campaign in status: {self.status}")
         
-        self.status = CampaignStatus.RUNNING
+        self.status = 'running'
         self.started_at = datetime.utcnow()
         self.updated_at = datetime.utcnow()
     
@@ -142,7 +142,7 @@ class Campaign(Base):
         if not self.can_pause():
             raise ValueError(f"Cannot pause campaign in status: {self.status}")
         
-        self.status = CampaignStatus.PAUSED
+        self.status = 'paused'
         self.updated_at = datetime.utcnow()
     
     def resume(self) -> None:
@@ -150,16 +150,25 @@ class Campaign(Base):
         if not self.can_resume():
             raise ValueError(f"Cannot resume campaign in status: {self.status}")
         
-        self.status = CampaignStatus.RUNNING
+        self.status = 'running'
         self.updated_at = datetime.utcnow()
     
     def complete(self) -> None:
         """Mark campaign as completed."""
-        self.status = CampaignStatus.COMPLETED
+        self.status = 'completed'
+        self.completed_at = datetime.utcnow()
+        self.updated_at = datetime.utcnow()
+    
+    def stop(self) -> None:
+        """Stop the campaign."""
+        if self.status not in ['running', 'paused']:
+            raise ValueError(f"Cannot stop campaign in status: {self.status}")
+        
+        self.status = 'completed'
         self.completed_at = datetime.utcnow()
         self.updated_at = datetime.utcnow()
     
     def fail(self) -> None:
         """Mark campaign as failed."""
-        self.status = CampaignStatus.FAILED
+        self.status = 'failed'
         self.updated_at = datetime.utcnow()

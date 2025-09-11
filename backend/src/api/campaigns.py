@@ -282,7 +282,7 @@ async def pause_campaign(
         
         return CampaignStartResponse(
             campaign_id=campaign_id,
-            status=paused_campaign.status.value,
+            status=paused_campaign.status,
             message="Campaign paused successfully"
         )
     except ValueError as e:
@@ -335,8 +335,61 @@ async def resume_campaign(
         
         return CampaignStartResponse(
             campaign_id=campaign_id,
-            status=resumed_campaign.status.value,
+            status=resumed_campaign.status,
             message="Campaign resumed successfully"
+        )
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
+
+
+@router.post("/{campaign_id}/stop", response_model=CampaignStartResponse)
+async def stop_campaign(
+    campaign_id: UUID,
+    db: AsyncSession = Depends(get_db_session)
+):
+    """Stop a campaign simulation."""
+    service = CampaignService(db)
+    orchestrator = SimulationOrchestrator(db)
+    
+    # Check if campaign exists
+    campaign = await service.get_campaign_by_id(campaign_id)
+    if not campaign:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Campaign not found"
+        )
+    
+    # Check if campaign can be stopped
+    if campaign.status not in ['running', 'paused']:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Cannot stop campaign in status: {campaign.status}"
+        )
+    
+    # Stop campaign
+    try:
+        stopped_campaign = await service.stop_campaign(campaign_id)
+        if not stopped_campaign:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Failed to stop campaign"
+            )
+        
+        # Stop simulation
+        simulation_stopped = await orchestrator.stop_campaign_simulation(campaign_id)
+        if not simulation_stopped:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Failed to stop simulation"
+            )
+        
+        return CampaignStartResponse(
+            campaign_id=campaign_id,
+            status=stopped_campaign.status,
+            message="Campaign stopped successfully"
         )
     except ValueError as e:
         raise HTTPException(

@@ -193,6 +193,28 @@ class CampaignService:
         except ValueError as e:
             raise ValueError(f"Cannot resume campaign: {str(e)}")
     
+    async def stop_campaign(self, campaign_id: UUID) -> Optional[Campaign]:
+        """Stop a campaign."""
+        campaign = await self.get_campaign_by_id(campaign_id)
+        if not campaign:
+            return None
+        
+        try:
+            campaign.stop()
+            
+            if self.db_session:
+                await self.db_session.commit()
+                await self.db_session.refresh(campaign)
+            else:
+                async with get_db_session() as session:
+                    session.add(campaign)
+                    await session.commit()
+                    await session.refresh(campaign)
+            
+            return campaign
+        except ValueError as e:
+            raise ValueError(f"Cannot stop campaign: {str(e)}")
+    
     async def complete_campaign(self, campaign_id: UUID) -> Optional[Campaign]:
         """Mark campaign as completed."""
         campaign = await self.get_campaign_by_id(campaign_id)
