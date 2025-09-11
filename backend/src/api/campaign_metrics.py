@@ -173,22 +173,29 @@ async def get_live_logs(
         .where(
             and_(
                 Session.campaign_id == campaign_id,
-                Session.updated_at >= since
+                or_(
+                    Session.created_at >= since,
+                    Session.started_at >= since,
+                    Session.completed_at >= since
+                )
             )
         )
-        .order_by(Session.updated_at.desc())
+        .order_by(Session.created_at.desc())
         .limit(limit // 2)
     )
     session_events_result = await db.execute(session_events_query)
     
     for session in session_events_result.scalars().all():
+        # Use the most recent timestamp available
+        timestamp = session.completed_at or session.started_at or session.created_at
+        
         events.append({
-            "timestamp": session.updated_at.isoformat(),
+            "timestamp": timestamp.isoformat(),
             "type": "session",
-            "action": f"Session {session.status.value}",
+            "action": f"Session {session.status}",
             "details": {
                 "session_id": str(session.id)[:8] + "...",  # Masquer l'ID complet
-                "status": session.status.value,
+                "status": session.status,
                 "pages_visited": session.pages_visited or 0,
                 "user_agent_type": session.user_agent.split('/')[0] if session.user_agent else "Unknown"
             }

@@ -234,6 +234,28 @@ class CampaignService:
         
         return campaign
     
+    async def finish_campaign(self, campaign_id: UUID) -> Optional[Campaign]:
+        """Mark campaign as finished (final completion)."""
+        campaign = await self.get_campaign_by_id(campaign_id)
+        if not campaign:
+            return None
+        
+        try:
+            campaign.finish()
+            
+            if self.db_session:
+                await self.db_session.commit()
+                await self.db_session.refresh(campaign)
+            else:
+                async with get_db_session() as session:
+                    session.add(campaign)
+                    await session.commit()
+                    await session.refresh(campaign)
+            
+            return campaign
+        except ValueError as e:
+            raise ValueError(f"Cannot finish campaign: {str(e)}")
+    
     async def fail_campaign(self, campaign_id: UUID) -> Optional[Campaign]:
         """Mark campaign as failed."""
         campaign = await self.get_campaign_by_id(campaign_id)

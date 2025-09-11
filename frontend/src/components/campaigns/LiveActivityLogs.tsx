@@ -38,7 +38,9 @@ export function LiveActivityLogs({ campaignId, campaignName, isRunning }: LiveAc
   const [logs, setLogs] = useState<LogEvent[]>([]);
   const [isAutoRefresh, setIsAutoRefresh] = useState(true);
   const [loading, setLoading] = useState(false);
+  const [userHasScrolled, setUserHasScrolled] = useState(false);
   const logsEndRef = useRef<HTMLDivElement>(null);
+  const logsContainerRef = useRef<HTMLDivElement>(null);
 
   const fetchLiveLogs = async () => {
     try {
@@ -50,10 +52,13 @@ export function LiveActivityLogs({ campaignId, campaignName, isRunning }: LiveAc
         const data = await response.json();
         setLogs(data.events || []);
         
-        // Auto-scroll to bottom for new events
-        if (isAutoRefresh) {
+        // Auto-scroll to bottom within the container only, but only if user hasn't manually scrolled
+        if (isAutoRefresh && logsContainerRef.current && !userHasScrolled) {
           setTimeout(() => {
-            logsEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+            const container = logsContainerRef.current;
+            if (container) {
+              container.scrollTop = container.scrollHeight;
+            }
           }, 100);
         }
       }
@@ -61,6 +66,17 @@ export function LiveActivityLogs({ campaignId, campaignName, isRunning }: LiveAc
       console.error('Erreur lors du chargement des logs:', error);
     } finally {
       setLoading(false);
+    }
+  };
+
+  // Handle user scroll detection
+  const handleScroll = () => {
+    const container = logsContainerRef.current;
+    if (container) {
+      const isAtBottom = container.scrollHeight - container.scrollTop === container.clientHeight;
+      // If user scrolled away from bottom, disable auto-scroll
+      // If user scrolled back to bottom, re-enable auto-scroll
+      setUserHasScrolled(!isAtBottom);
     }
   };
 
@@ -72,6 +88,15 @@ export function LiveActivityLogs({ campaignId, campaignName, isRunning }: LiveAc
       return () => clearInterval(interval);
     }
   }, [campaignId, isRunning, isAutoRefresh]);
+
+  // Add scroll listener to detect manual scrolling
+  useEffect(() => {
+    const container = logsContainerRef.current;
+    if (container) {
+      container.addEventListener('scroll', handleScroll);
+      return () => container.removeEventListener('scroll', handleScroll);
+    }
+  }, []);
 
   const formatTime = (timestamp: string) => {
     return new Date(timestamp).toLocaleTimeString('fr-FR', {
@@ -221,7 +246,7 @@ export function LiveActivityLogs({ campaignId, campaignName, isRunning }: LiveAc
       </CardHeader>
       
       <CardContent className="flex-1 overflow-hidden">
-        <div className="h-full overflow-y-auto space-y-3 pr-2">
+        <div ref={logsContainerRef} className="h-full overflow-y-auto space-y-3 pr-2">
           {loading && logs.length === 0 ? (
             <div className="flex items-center justify-center h-32">
               <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-500"></div>

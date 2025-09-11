@@ -69,6 +69,7 @@ export function CampaignProgressBar({
     }
   }, [campaignId, status]);
 
+
   // WebSocket connection for real-time updates (when backend implements it)
   useEffect(() => {
     // Only try WebSocket for running campaigns
@@ -152,15 +153,23 @@ export function CampaignProgressBar({
             <span>Visitors Sent</span>
             <span className="font-mono">
               {progress.completed.toLocaleString()} / {progress.total.toLocaleString()}
+              {progress.completed > progress.total && (
+                <span className="text-green-600 ml-1">✓ Completed</span>
+              )}
             </span>
           </div>
           <ProgressBar
-            value={progress.completed}
+            value={Math.min(progress.completed, progress.total)}
             max={progress.total}
-            variant="success"
+            variant={progress.completed >= progress.total ? "success" : "default"}
             showPercentage={true}
             className="h-3"
           />
+          {progress.completed > progress.total && (
+            <div className="text-xs text-green-600 mt-1">
+              Campaign exceeded target by {((progress.completed / progress.total - 1) * 100).toFixed(0)}%
+            </div>
+          )}
         </div>
 
         {/* Detailed breakdown */}

@@ -161,14 +161,22 @@ class Campaign(Base):
     
     def stop(self) -> None:
         """Stop the campaign."""
-        if self.status not in ['running', 'paused']:
+        if self.status not in ['running', 'paused', 'completed']:
             raise ValueError(f"Cannot stop campaign in status: {self.status}")
         
-        self.status = 'completed'
-        self.completed_at = datetime.utcnow()
+        self.status = 'paused'  # Stop = pause, not complete
         self.updated_at = datetime.utcnow()
     
     def fail(self) -> None:
         """Mark campaign as failed."""
         self.status = 'failed'
+        self.updated_at = datetime.utcnow()
+    
+    def finish(self) -> None:
+        """Mark campaign as finished (final completion)."""
+        if self.status not in ['running', 'paused', 'completed']:
+            raise ValueError(f"Cannot finish campaign in status: {self.status}")
+        
+        self.status = 'completed'
+        self.completed_at = datetime.utcnow()
         self.updated_at = datetime.utcnow()

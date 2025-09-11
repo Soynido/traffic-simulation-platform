@@ -26,7 +26,7 @@ services:
       DATABASE_URL: postgresql+asyncpg://traffic_user:traffic_pass@postgres:5432/traffic_db
       REDIS_URL: redis://redis:6379
       CORS_ORIGINS: http://localhost:3001,http://127.0.0.1:3001
-      ALLOWED_HOSTS: localhost,127.0.0.1,0.0.0.0
+      ALLOWED_HOSTS: localhost,127.0.0.1,0.0.0.0,backend
     ports:
       - "8000:8000"
     volumes:

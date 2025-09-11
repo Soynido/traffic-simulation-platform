@@ -416,6 +416,39 @@ async def get_campaign_status(
     return CampaignStatusResponse(**status_info)
 
 
+@router.post("/{campaign_id}/finish", response_model=CampaignResponse)
+async def finish_campaign(
+    campaign_id: UUID,
+    db: AsyncSession = Depends(get_db_session)
+):
+    """Mark campaign as finished (final completion)."""
+    service = CampaignService(db)
+    
+    # Check if campaign exists
+    campaign = await service.get_campaign_by_id(campaign_id)
+    if not campaign:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Campaign not found"
+        )
+    
+    # Finish campaign
+    try:
+        finished_campaign = await service.finish_campaign(campaign_id)
+        if not finished_campaign:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Failed to finish campaign"
+            )
+        
+        return CampaignResponse.from_orm(finished_campaign)
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
+
+
 @router.post("/{campaign_id}/start-real-navigation", response_model=CampaignResponse)
 async def start_campaign_real_navigation(
     campaign_id: UUID,

@@ -1,11 +1,14 @@
 import axios, { AxiosInstance, AxiosRequestConfig, AxiosError } from 'axios';
 
-const BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api/v1';
+// Direct connection to backend - simpler and more reliable
+const BASE_URL = typeof window !== 'undefined' 
+  ? 'http://localhost:8000/api/v1'  // Browser: direct backend call
+  : process.env.API_URL || 'http://backend:8000/api/v1';  // Server: direct backend call
 
 function createClient(): AxiosInstance {
   const instance = axios.create({
     baseURL: BASE_URL,
-    timeout: 10000,
+    timeout: 30000,  // Increased timeout for Docker network
     headers: {
       'Content-Type': 'application/json',
     },
